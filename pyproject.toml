@@ -1,0 +1,20 @@
+[project]
+name = "bandnet"
+version = "0.1.0"
+description = "Inverse design of phononic dispersion curves"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "numpy",
+]
+
+[project.optional-dependencies]
+legacy = [
+    "matplotlib",
+    "openpyxl",
+    "pandas",
+    "psutil",
+    "torch",
+]
+
+[tool.uv]
+package = false
