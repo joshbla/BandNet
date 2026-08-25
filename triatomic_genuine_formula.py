@@ -1,4 +1,7 @@
-"""Auditable float64 implementation of the documented triatomic equations.
+"""Auditable float64 implementation of canonical BN-TRI equations.
+
+The synchronized specification is in ``generated/derivations``. This module
+implements BN-TRI-PADDING, BN-TRI-FORCE, BN-TRI-ABC, and BN-TRI-DYNAMIC.
 
 Matrix and eigenvalue checks use 64 times float64 machine epsilon multiplied by
 the relevant matrix scale. Only squared frequencies inside that roundoff bound

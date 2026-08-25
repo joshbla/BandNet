@@ -1,0 +1,17 @@
+{
+  "canonical_source": "BandNet-Docs/derivations/source",
+  "files": {
+    "diatomic.tex": {
+      "sha256": "9cf1315ed0a51b26565dfdbc2421f29adf8d7e9310addabc56876eb47c423444"
+    },
+    "equations.tex": {
+      "sha256": "b0fdc238b89a3838c8b7e8b080d3b82a87e6dd1ad6ef0df7bd0992734375cd22"
+    },
+    "monoatomic.tex": {
+      "sha256": "425e4af9e96c7219d62e5efc13193ccaeec561eef9c185ec6e30b44c5afdfe52"
+    },
+    "triatomic.tex": {
+      "sha256": "471f36f0536b5869786cb58aa121e80f006410954f93bf2ddd71b0543d527ae2"
+    }
+  }
+}

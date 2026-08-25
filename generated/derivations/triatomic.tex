@@ -1,0 +1,111 @@
+% Canonical BandNet triatomic derivation.
+% Requires generated/derivations/equations.tex.
+
+This derivation extends the same free-standing, symmetric interaction model to
+a three-mass unit cell. It groups interaction distances modulo three, constructs
+the Bloch force matrix, and identifies the Hermitian dynamic matrix whose three
+eigenvalues give the squared frequencies.
+
+\subsection{Model and interaction groups}
+
+Let positive masses $m_1$, $m_2$, and $m_3$ repeat on sites separated by $d$.
+Cell $\ell$ contains displacements $u_\ell$, $v_\ell$, and $w_\ell$ at sites
+$3\ell$, $3\ell+1$, and $3\ell+2$, and has period $L=3d$. Each site is connected
+symmetrically to the sites $n$ positions away by a passive spring $k_n\geq0$,
+$n=1,2,\ldots,N$, with no springs to ground. The site equation is
+\begin{equation}
+    \BandNetTriatomicEquationOfMotion.
+    \label{eq:tri-site}
+\end{equation}
+Define
+\begin{equation}
+    \BandNetTriatomicPadding.
+    \label{eq:tri-padding}
+\end{equation}
+This padding changes neither the forces nor the dispersion. For the $u_\ell$
+site, group $j=1,2,\ldots,P$ has neighbors
+\begin{equation*}
+\begin{array}{c|cc}
+\text{distance}&\text{right neighbor}&\text{left neighbor}\\\hline
+3j&u_{\ell+j}&u_{\ell-j}\\
+3j-2&v_{\ell+j-1}&w_{\ell-j}\\
+3j-1&w_{\ell+j-1}&v_{\ell-j}
+\end{array}
+\end{equation*}
+The relations for $v_\ell$ and $w_\ell$ follow by translating one or two sites.
+
+\subsection{Bloch reduction and force matrix}
+
+Use the cell-index Bloch gauge
+\begin{equation}
+\begin{aligned}
+    u_\ell(t)&=Ue^{i(q\ell L-\omega t)},&
+    v_\ell(t)&=Ve^{i(q\ell L-\omega t)},&
+    w_\ell(t)&=We^{i(q\ell L-\omega t)},\\
+    Q&=qL=3qd.
+\end{aligned}
+\label{eq:tri-bloch}
+\end{equation}
+For example, distance $3j-2$ contributes factors $e^{i(j-1)Q}$ toward $V$ and
+$e^{-ijQ}$ toward $W$ in the $u_\ell$ equation. Distance $3j-1$ contributes
+$e^{-ijQ}$ toward $V$ and $e^{i(j-1)Q}$ toward $W$. Collecting these factors and
+the $-2k_n$ term from every spring gives
+\begin{equation}
+    \BandNetTriatomicGeneralizedEigenproblem.
+    \label{eq:tri-generalized}
+\end{equation}
+The force matrix is
+\begin{equation}
+    \BandNetTriatomicForceMatrix,
+    \label{eq:tri-force}
+\end{equation}
+with entries
+\begin{equation}
+    \BandNetTriatomicEntries.
+    \label{eq:tri-entries}
+\end{equation}
+For real stiffnesses, $A$ is real and
+\begin{equation}
+    \BandNetTriatomicHermitianIdentities,
+    \label{eq:tri-hermitian}
+\end{equation}
+so $\mathbf F(q)$ is Hermitian. The passive-spring energy representation implies
+that the force operator is negative semidefinite. A generic formal proof of this
+spectral claim is a recorded deferred obligation. The corresponding
+mass-normalized dynamic matrix is
+\begin{equation}
+    \BandNetTriatomicDynamicMatrix.
+    \label{eq:tri-dynamic}
+\end{equation}
+Its ordered eigenvalues are the three squared frequencies. This form preserves
+Hermitian symmetry and is equivalent to the generalized eigenproblem for
+positive masses.
+
+\subsection{Five-interaction case}
+
+For $N=5$, padding gives $P=2$, $N'=6$, and $k_6=0$. The entries become
+\begin{equation}
+    \BandNetTriatomicFiveEntries.
+    \label{eq:tri-five}
+\end{equation}
+All five physical stiffnesses remain distinct; $k_6=0$ is bookkeeping only.
+
+\subsection{Wave-number domain and consistency checks}
+
+The first Brillouin zone is $|q|\leq\pi/(3d)$. The positive half is represented
+by $\hat q=3qd/\pi\in[0,1]$.
+
+\paragraph{Rigid translation.}
+At $q=0$, let
+$K_{\mathrm{cross}}=\sum_{j=1}^{P}(k_{3j-2}+k_{3j-1})$. Then
+$A=-2K_{\mathrm{cross}}$ and $B=C=K_{\mathrm{cross}}$, so every row of
+$\mathbf F(0)$ sums to zero. Thus $[1,1,1]^T$ lies in its kernel and produces a
+zero squared frequency.
+
+\paragraph{Nearest-neighbor limit.}
+If only $k_1$ is nonzero, $A=-2k_1$, $B=k_1$, and $C=k_1e^{-iQ}$, giving the
+standard nearest-neighbor three-site-cell force matrix.
+
+\paragraph{Equal masses.}
+If $m_1=m_2=m_3$, the three-site description is a zone-folded monoatomic chain
+of spacing $d$.

@@ -69,6 +69,8 @@ def dispersion_curve(inputs, m, k_prime):
         result = np.stack([q_list, ω_optical, ω_acoustic], axis=1)
         return result
     elif m == 3:
+        # Historical triatomic path. It is not aligned with the canonical
+        # BN-TRI equations; see PHYSICS_SOURCE.md.
         # Define the given values and constants
         M_indexes = int(k_prime/3)
         a = math.pi/3
