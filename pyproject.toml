@@ -5,6 +5,8 @@ description = "Inverse design of phononic dispersion curves"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "numpy",
+    "psutil",
+    "threadpoolctl",
 ]
 
 [project.optional-dependencies]
@@ -12,7 +14,6 @@ legacy = [
     "matplotlib",
     "openpyxl",
     "pandas",
-    "psutil",
     "torch",
 ]
 
