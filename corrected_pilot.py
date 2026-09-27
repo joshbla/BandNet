@@ -22,7 +22,8 @@ from triatomic_data import (GRID, POPULATIONS, SHOWCASE_IDS, LabeledArtifact, ad
 from triatomic_execution import tune_execution
 from triatomic_genuine_formula import triatomic_frequencies
 from triatomic_learning import (BandInverse, DifferentiableTriatomic, band_loss,
-                                evaluate_population, train_model)
+                                evaluate_designs, evaluate_population, predict,
+                                summarize_errors, train_model)
 
 
 ROOT = Path(__file__).resolve().parent
@@ -150,10 +151,129 @@ def export_figure(path, artifact, records, training_report):
     plt.close(figure)
 
 
+def sizing_exercise(output):
+    """Fixed five-fit sizing protocol; validation only, no final test selection."""
+    data_base, training_base = settings(ROOT / ".env.local")
+    policy = load_generation_policy(ROOT / ".env.local")
+    if output.exists() or not output.parent.is_dir():
+        raise ValueError("sizing output must be new with an existing parent")
+    if shutil.disk_usage(output.parent).free < 2 * 1024**3:
+        raise OSError("sizing exercise requires two GiB disk headroom")
+    output.mkdir()
+    (output / "sources").mkdir()
+    provenance = {"code_base_commit": subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+        "source_sha256": {name: sha256_file(ROOT / name) for name in SOURCE_FILES},
+        "numpy": np.__version__, "torch": str(torch.__version__), "platform": platform.platform()}
+    for name in SOURCE_FILES:
+        shutil.copyfile(ROOT / name, output / "sources" / name)
+    training_base.update(epochs=60)
+    protocol = {"name": "bounded-five-fit-sizing-v1", "provenance": provenance,
+                "training_base": training_base, "data_seed": data_base["seed"],
+                "generation_policy": policy.__dict__,
+                "comparisons": [[5, 2048, 128], [5, 8192, 128], [5, 8192, 256]],
+                "selection": "lowest pooled validation primary; prefer fewer parameters/examples within 5% relative of minimum",
+                "confirmation": "selected M5 with seed+1, then M20 selected configuration; 60 epochs each",
+                "evaluation": "512 dense/512 sparse validation, development boundary diagnostics; no final tests/showcases"}
+    write_json(output / "protocol.json", protocol)
+    torch.set_num_threads(training_base["torch_threads"])
+    torch.use_deterministic_algorithms(True)
+    datasets, generation, runs = {}, {}, []
+    exercise_start = time.perf_counter()
+
+    def dataset(interactions, count):
+        key = f"m{interactions}-n{count}"
+        if key in datasets:
+            return datasets[key]
+        config = dict(data_base, interactions=interactions, train_count=count,
+                      validation_count_per_population=512, test_count_per_population=2)
+        started = time.perf_counter()
+        check = preflight(interactions, config["seed"], 128)
+        check["elapsed_seconds"] = time.perf_counter() - started
+        write_json(output / f"{key}-preflight.json", check)
+        solver = TriatomicBatchSolver(GRID, interactions)
+        probe = sample_labels(1024, interactions, config["seed"], "train")
+        plan, tuning = tune_execution(solver, *physical_arrays(probe, interactions), policy)
+        tick = time.perf_counter()
+        generate_artifact(output / f"{key}-data", config, solver, plan, provenance)
+        generated = time.perf_counter() - tick
+        tick = time.perf_counter()
+        artifact = LabeledArtifact(output / f"{key}-data")
+        generation[key] = {"configuration": config, "preflight": check, "calibration": tuning,
+                           "generation_write_seconds": generated,
+                           "checksum_load_seconds": time.perf_counter() - tick,
+                           "manifest_sha256": sha256_file(artifact.root / "manifest.json")}
+        datasets[key] = artifact
+        write_json(output / "generation.json", generation)
+        return artifact
+
+    def fit(interactions, count, width, seed, name):
+        artifact = dataset(interactions, count)
+        config = dict(training_base, width=width, seed=seed)
+        tick = time.perf_counter()
+        model, training = train_model(output / name, artifact, config, provenance)
+        fit_seconds = time.perf_counter() - tick
+        diagnostic = {}
+        for population in ("validation_dense", "validation_sparse", "adversarial"):
+            summary, records = evaluate_population(model, artifact, population, config["batch_size"])
+            diagnostic[population] = summary
+            for kind, array in records.items():
+                save_array(output / name / f"{population}.{kind}.npy", array)
+        if interactions == 20:
+            shared = datasets[f"m5-n{count}"]
+            for population in ("validation_dense", "validation_sparse", "adversarial"):
+                all_errors, all_predictions, failures = [], [], []
+                for rows, target, _ in shared.batches(population, config["batch_size"]):
+                    prediction = predict(model, target, config["batch_size"])
+                    _, errors, failed = evaluate_designs(target, prediction, interactions)
+                    failures.extend({"row": int(rows[item["row"]]), "reason": item["reason"]} for item in failed)
+                    all_errors.append(errors)
+                    all_predictions.append(prediction)
+                errors = np.concatenate(all_errors)
+                diagnostic[f"shared_m5_{population}"] = summarize_errors(errors, failures)
+                save_array(output / name / f"shared_m5_{population}.per_band_errors.npy", errors)
+                save_array(output / name / f"shared_m5_{population}.predictions.npy", np.concatenate(all_predictions))
+        row = {"name": name, "interactions": interactions, "train_count": count,
+               "configuration": config, "best_epoch": training["best_epoch"],
+               "best_validation_primary": training["best_validation_primary"],
+               "training_seconds": training["training_seconds_excluding_validation"],
+               "fit_wall_seconds": fit_seconds, "checkpoint_sha256": training["checkpoint_sha256"],
+               "diagnostics": diagnostic, "history": training["history"]}
+        runs.append(row)
+        write_json(output / "runs.json", runs)
+        print(json.dumps({key: row[key] for key in ("name", "best_epoch", "best_validation_primary", "training_seconds", "fit_wall_seconds")}), flush=True)
+        return row
+
+    seed = training_base["seed"]
+    fit(5, 2048, 128, seed, "m5-small")
+    fit(5, 8192, 128, seed, "m5-large")
+    fit(5, 8192, 256, seed, "m5-wide")
+    minimum = min(row["best_validation_primary"] for row in runs)
+    eligible = [row for row in runs if row["best_validation_primary"] <= minimum * 1.05]
+    selected = min(eligible, key=lambda row: (row["configuration"]["width"], row["train_count"]))
+    write_json(output / "selection.json", {"selected": selected["name"], "rule": protocol["selection"],
+                                           "minimum": minimum, "eligible": [row["name"] for row in eligible]})
+    fit(5, selected["train_count"], selected["configuration"]["width"], seed + 1, "m5-repeat")
+    fit(20, selected["train_count"], selected["configuration"]["width"], seed, "m20-endpoint")
+    files = {str(path.relative_to(output)): {"sha256": sha256_file(path), "bytes": path.stat().st_size}
+             for path in sorted(output.rglob("*")) if path.is_file()}
+    report = {"protocol": protocol, "generation": generation, "selected": selected["name"], "runs": runs,
+              "total_wall_seconds": time.perf_counter() - exercise_start,
+              "process_lifetime_peak_rss_bytes": int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss) * (1 if sys.platform == "darwin" else 1024),
+              "artifact_directory": str(output.resolve()), "files": files,
+              "limitations": ["development validation, not publication final tests", "CPU float64 only; no CUDA validation",
+                              "one fixed-data optimizer-seed repeat; no population replication", "M6-M19 not trained"]}
+    write_json(output / "report.json", report)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--sizing", action="store_true", help="run the fixed five-fit validation-only local sizing exercise")
     args = parser.parse_args()
+    if args.sizing:
+        sizing_exercise(args.output)
+        return
     if args.output.exists() or not args.output.parent.is_dir():
         raise ValueError("output must be a new directory inside an existing parent")
     data_config, training_config = settings(ROOT / ".env.local")

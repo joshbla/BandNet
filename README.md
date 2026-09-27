@@ -135,6 +135,32 @@ Local `artifacts/` is Git-ignored. The workspace documentation retains the initi
 pilot report and its limitations in `THREE_BAND_RERUN_MAP.md`. Neither command
 starts cloud compute or determines appropriate RunPod reserve values.
 
+### Bounded Training Sizing
+
+This exercise is complete. The commands below preserve its reproducibility;
+they are not the next production task. The owner directed a full-size corrected
+three-band rerun on RunPod. These small settings have not been established as
+replacements for the historical dataset sizes or architecture. See `TODO.md`.
+
+The fixed sizing protocol runs five CPU/float64 fits: M5 at 2,048/8,192 examples
+with width 128, one 8,192-example width-256 comparison, a repeat initialization
+of the validation-selected configuration, and one M20 endpoint check. Each fit
+runs 60 epochs with a best-validation checkpoint. Batch size, learning rate,
+seed, CPU threads and generation reserves come from local `.env.local`.
+
+```bash
+uv run --frozen --extra training python corrected_pilot.py --sizing --output artifacts/corrected-training-sizing
+uv run --frozen --extra training python verify_corrected_pilot.py --sizing --run artifacts/corrected-training-sizing --report /absolute/existing/directory/corrected-training-sizing-audit.json
+```
+
+The comparisons use the same 512 dense and 512 sparse M5 validation targets.
+M20 is also evaluated against these shared M5 targets. Boundary cases are
+development diagnostics. Final random tests and showcases are not scored;
+the eventual publication run needs fresh held-out tests. The protocol fixes
+the selection rule before fitting and retains all histories, checkpoints,
+development predictions, source snapshots and separately scoped timings.
+This is a bounded sizing exercise, not the M5-M20 publication study.
+
 ## Fixed-M5 Baseline Benchmark
 
 Create `code/.env.local` using `.env.local.example` and set its three script
