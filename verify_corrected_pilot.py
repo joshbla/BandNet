@@ -7,9 +7,9 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from corrected_pilot import ROOT, settings
-from triatomic_data import LabeledArtifact, sha256_file, write_json
-from triatomic_learning import band_errors, evaluate_designs, load_model, predict, summarize_errors
+from corrected_pilot import ROOT, settings, production_settings, production_protocol
+from triatomic_data import LabeledArtifact, array_hash, sha256_file, write_json
+from triatomic_learning import band_errors, evaluate_designs, evaluate_population, load_model, predict, summarize_errors
 
 
 def verify_run(root, batch_size):
@@ -143,14 +143,126 @@ def verify_sizing(root, batch_size):
                       "final_tests_and_showcases_evaluated": False}}
 
 
+def verify_production(root, controls):
+    """Independent-process checkpoint/target/compact-record audit before publication."""
+    root = Path(root)
+    protocol = json.loads((root / "protocol.json").read_text())
+    progress = json.loads((root / "progress.json").read_text())
+    if progress["status"] != "completed_pending_independent_audit":
+        raise ValueError("production matrix has not completed")
+    expected = production_protocol(controls)
+    for key, value in expected.items():
+        if protocol[key] != value:
+            raise ValueError(f"production protocol differs from the fixed experiment: {key}")
+    for name, digest in protocol["provenance"]["source_sha256"].items():
+        if sha256_file(root / "sources" / name) != digest:
+            raise ValueError(f"production source snapshot mismatch: {name}")
+    shared = LabeledArtifact(root / "shared-m5-data")
+    if (shared.manifest["identity"]["configuration"] != protocol["shared"]
+            or shared.manifest["identity"]["provenance"] != protocol["provenance"]):
+        raise ValueError("shared target configuration mismatch")
+    checked, summaries, checkpoints = 0, {}, []
+    for fit in protocol["fits"]:
+        name = fit["name"]
+        artifact = LabeledArtifact(root / f"{name}-data")
+        if (artifact.manifest["identity"]["configuration"] != fit["data"]
+                or artifact.manifest["identity"]["provenance"] != protocol["provenance"]):
+            raise ValueError("fit data configuration mismatch")
+        checkpoint = root / name / "best.pt"
+        digest = sha256_file(checkpoint)
+        if digest != progress["fits"][name]["checkpoint_sha256"]:
+            raise ValueError("production checkpoint checksum mismatch")
+        model, payload = load_model(checkpoint, device=controls["device"])
+        if (payload["dataset_manifest_sha256"] != sha256_file(artifact.root / "manifest.json")
+                or payload["training_configuration"] != fit["training"]
+                or payload["provenance"] != protocol["provenance"]):
+            raise ValueError("checkpoint data/configuration/source mismatch")
+        training = json.loads((root / name / "training.json").read_text())
+        if [row["epoch"] for row in training["history"]] != list(range(fit["training"]["epochs"] + 1)):
+            raise ValueError("incomplete or duplicated training epochs")
+        best = min(training["history"], key=lambda row: row["validation_primary"])
+        if (payload["epoch"] != best["epoch"] or payload["validation_primary"] != best["validation_primary"]
+                or training["checkpoint_sha256"] != digest):
+            raise ValueError("checkpoint selection was not the recorded validation minimum")
+        dense, _ = evaluate_population(model, artifact, "validation_dense", controls["batch_size"], retain_curves=False)
+        sparse, _ = evaluate_population(model, artifact, "validation_sparse", controls["batch_size"], retain_curves=False)
+        if dense["invalid_prediction_count"] or sparse["invalid_prediction_count"]:
+            raise ValueError("invalid saved-model validation prediction")
+        score = (dense["primary"] * dense["count"] + sparse["primary"] * sparse["count"]) / (dense["count"] + sparse["count"])
+        np.testing.assert_allclose(score, payload["validation_primary"], rtol=1e-10, atol=1e-10)
+        evaluations = [(population, artifact, population) for population in ("test_dense", "test_sparse", "adversarial", "showcase")]
+        if name.startswith("study-"):
+            evaluations.extend((f"shared_m5_{population}", shared, population) for population in ("test_dense", "test_sparse"))
+        for label, targets, population in evaluations:
+            directory = root / name / label
+            manifest = json.loads((directory / "manifest.json").read_text())
+            identity = manifest["identity"]
+            count = len(targets.arrays[population][0])
+            if (not manifest["complete"] or manifest["completed_rows"] != count or manifest["failures"]
+                    or identity["target_manifest_sha256"] != sha256_file(targets.root / "manifest.json")
+                    or identity["checkpoint_sha256"] != digest or identity["population"] != population
+                    or identity["model_interactions"] != model.interactions):
+                raise ValueError("compact evaluation identity/completion mismatch")
+            arrays = {kind: np.load(directory / f"{kind}.npy", mmap_mode="r", allow_pickle=False)
+                      for kind in ("predictions", "per_band_errors")}
+            if (arrays["predictions"].shape != (count, model.interactions + 1)
+                    or arrays["per_band_errors"].shape != (count, 3)
+                    or any(array.dtype != np.float64 for array in arrays.values())):
+                raise ValueError("compact evaluation schema mismatch")
+            end = 0
+            for chunk in manifest["chunks"]:
+                if chunk["start"] != end or not end < chunk["stop"] <= count:
+                    raise ValueError("compact evaluation chunk order mismatch")
+                for kind, array in arrays.items():
+                    if array_hash(array[end:chunk["stop"]]) != chunk["sha256"][kind]:
+                        raise ValueError("compact evaluation checksum mismatch")
+                end = chunk["stop"]
+            if end != count:
+                raise ValueError("compact evaluation is truncated")
+            for rows, bands, _ in targets.batches(population, controls["batch_size"]):
+                predicted = predict(model, bands, controls["batch_size"])
+                np.testing.assert_allclose(predicted, arrays["predictions"][rows], rtol=1e-10, atol=1e-10)
+                _, errors, failed = evaluate_designs(bands, arrays["predictions"][rows], model.interactions)
+                if failed:
+                    raise ValueError("invalid final design in production audit")
+                np.testing.assert_allclose(errors, arrays["per_band_errors"][rows], rtol=1e-12, atol=1e-12)
+                checked += len(rows)
+            summary = json.loads((directory / "scores.json").read_text())
+            for metric, value in summarize_errors(arrays["per_band_errors"], []).items():
+                if summary[metric] != value:
+                    raise ValueError(f"production summary mismatch: {name}/{label}/{metric}")
+            if targets.interactions == model.interactions:
+                mae = np.abs(arrays["predictions"] - targets.arrays[population][0]).mean(axis=0)
+                np.testing.assert_array_equal(mae, summary["parameter_mae_by_label"])
+            if summary != progress["evaluations"][f"{name}/{label}"]:
+                raise ValueError("progress/evaluation summary mismatch")
+            summaries[f"{name}/{label}"] = summary
+        checkpoints.append({"name": name, "sha256": digest, "best_epoch": best["epoch"]})
+        del model, artifact
+    return {"protocol_sha256": sha256_file(root / "protocol.json"),
+            "auditor_sha256": sha256_file(Path(__file__)), "checkpoints": checkpoints,
+            "source_snapshots_verified": True, "dataset_checksums_verified": True,
+            "predictions_and_metrics_checked": checked, "evaluation": summaries,
+            "prediction_tolerance": {"rtol": 1e-10, "atol": 1e-10},
+            "score_tolerance": {"rtol": 1e-12, "atol": 1e-12},
+            "publication_status": "audited numerical records; manuscript replacement still required"}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", required=True, type=Path)
     parser.add_argument("--report", required=True, type=Path)
-    parser.add_argument("--sizing", action="store_true")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--sizing", action="store_true")
+    modes.add_argument("--production", action="store_true")
     args = parser.parse_args()
     if args.report.exists() or not args.report.parent.is_dir():
         raise ValueError("audit report must be new in an existing directory")
+    if args.production:
+        config = production_settings(ROOT / ".env.local")
+        torch.set_num_threads(config["torch_threads"])
+        write_json(args.report, verify_production(args.run, config))
+        return
     _, config = settings(ROOT / ".env.local")
     torch.set_num_threads(config["torch_threads"])
     if args.sizing:

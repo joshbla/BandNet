@@ -35,13 +35,77 @@ uv run --frozen python -m unittest discover -v
 
 The lightweight suite writes small temporary fixtures and arrays. With the
 `training` extra it also runs tiny corrected training/checkpoint/inference tests;
-it never invokes `Core.py`. Run all 52 checks with:
+it never invokes `Core.py`. Run the complete suite with:
 
 ```bash
 uv run --frozen --extra training python -m unittest discover -v
 ```
 
-Without PyTorch the eight corrected learning tests are explicitly skipped.
+Without PyTorch the corrected learning tests are explicitly skipped.
+
+## Full Corrected Production Experiment
+
+The fixed CUDA runner restores the recorded five-hidden-layer ReLU architecture
+(`5000,2500,5000,2500,5000`) with the adopted corrected contract: 1,500 scaled
+frequency inputs, bounded physical outputs, float64 network/physics, and band
+loss. M5 has 57,550,006 trainable parameters. The input q column is redundant on
+the fixed grid and remains excluded. Adam stays at the corrected pipeline's
+`0.001`, without the historical parameter-loss scheduler. This is a corrected
+retraining, not historical checkpoint continuation.
+
+The matrix is main M5 at 2,500,000 examples/five epochs plus M5-M20 at 100,000
+examples/100 epochs each. All fits use batch size 1,024, independent 2,048-case
+dense and sparse validation, and validation-only checkpoint selection. The main
+final populations have 125,000 examples each; study own-count tests have 5,000
+each. The common 20,000-target M5 set is 10,000 dense plus 10,000 sparse, stored
+once with its own seed. All fits finish before any final population is scored.
+No pilot data or checkpoints are reused.
+
+**Paid launch requires owner approval.** The implementation passes local fixture
+checks; CUDA execution and full-size throughput still require the actual pod.
+Set `BANDNET_PRODUCTION_*` and the actual pod's `BANDNET_GENERATION_*` reserves
+in local `.env.local`. There is no CPU substitution when CUDA is unavailable.
+Use the locked environment on a host compatible with its CUDA 13 runtime.
+
+On the approved GPU, from `code/`, with an existing persistent artifact parent:
+
+```bash
+uv run --frozen --extra training python -m unittest discover -v
+uv run --frozen --extra training python corrected_pilot.py --gpu-preflight --output /workspace/artifacts/gpu-preflight
+```
+
+Preflight checks M5/M20 values, gradients, full-architecture optimizer updates,
+CPU-scored predictions, CUDA/CPU checkpoint reload, resources and native CPU
+thread control. It measures two warmup and five timed updates per endpoint with
+batch size 1,024, full validation and checkpoint-writing overhead. This is not
+an architecture or accuracy search. Its training-only projection excludes the
+remaining stages; use its recorded stage timings to form the full-run budget.
+
+After approving that measured production budget:
+
+```bash
+uv run --frozen --extra training python corrected_pilot.py --production --preflight /workspace/artifacts/gpu-preflight --output /workspace/artifacts/full-three-band
+uv run --frozen --extra training python corrected_pilot.py --production --resume --preflight /workspace/artifacts/gpu-preflight --output /workspace/artifacts/full-three-band
+uv run --frozen --extra training python verify_corrected_pilot.py --production --run /workspace/artifacts/full-three-band --report /workspace/artifacts/full-three-band-audit.json
+```
+
+The second command is for an interrupted run, not a second experiment. It checks
+the frozen source, configuration, machine preflight and artifact identities.
+Training persists Adam state, deterministic row cursor and best-validation
+weights every configured interval and epoch boundary. Uncommitted work may be
+replayed; its unknown duration is not filled in. `MAX_SECONDS` is a cooperative
+per-invocation limit, **not a RunPod billing stop**. An external pod stop deadline
+must be armed for the approved budget. A changed GPU/driver requires renewed
+preflight and an explicit provenance review before resuming that study.
+
+Final records store predicted parameters, per-band errors and chunk checksums;
+they reference retained target arrays instead of duplicating reconstructed curves.
+The independent audit replays all predictions, reconstructs every design with the
+CPU solver, checks checkpoint validation selection and verifies summaries. Final
+figures and manuscript replacements follow that audit. The runner requires
+150 GB initial free space and keeps a 20 GB disk reserve; a 200 GB persistent
+network volume accommodates about 55.55 GB of dataset payload and 39.16 GB of
+retained model/Adam payload plus preflight, temporary checkpoints and software.
 
 ## Batched Three-Band CPU Candidate
 
@@ -103,8 +167,8 @@ counted and make the population primary score undefined; they are not dropped.
 
 `triatomic_data.generate_artifact(..., resume=True)` explicitly resumes an
 interrupted dataset with identical source/configuration, verifying completed
-prefixes before rewriting uncommitted rows. The command above creates new runs;
-training resume is not implemented. `LabeledArtifact` rejects incomplete or
+prefixes before rewriting uncommitted rows. The command above creates new pilot
+runs; the production command implements training resume. `LabeledArtifact` rejects incomplete or
 checksum-invalid datasets and reads dense frequency batches from read-only mmap
 arrays. Parameter arrays and permutation indices remain pilot-sized in RAM.
 

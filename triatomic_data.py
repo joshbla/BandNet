@@ -175,7 +175,7 @@ def _check_split(root, record, grid_size, width):
 
 
 def generate_artifact(root, config, solver, plan, provenance, *, resume=False,
-                      after_chunk=None):
+                       after_chunk=None, checkpoint_rows=1):
     """Durable prefix checkpoints. Explicit resume rewrites only uncommitted rows.
 
     A crash can leave an unrecorded chunk; its cost is unknown, not reconstructed.
@@ -183,6 +183,8 @@ def generate_artifact(root, config, solver, plan, provenance, *, resume=False,
     arrays; frequency storage and generation workspace stay batch-bounded.
     """
     root = Path(root)
+    if type(checkpoint_rows) is not int or checkpoint_rows < 1:
+        raise ValueError("positive generation checkpoint row interval required")
     if config["sampling"] != "half-dense-half-independent-p05-zero-mask-v1" or config["mass_bounds"] != [0.1, 10] or config["spring_bounds"] != [0, 10]:
         raise ValueError("unsupported sampling contract")
     if solver.interaction_count != config["interactions"] or not np.array_equal(solver.q_hat_values, GRID):
@@ -192,7 +194,8 @@ def generate_artifact(root, config, solver, plan, provenance, *, resume=False,
                 "solver_version": SOLVER_VERSION, "label_order": label_order(config["interactions"]),
                 "grid_sha256": array_hash(GRID), "compute_dtype": "float64",
                 "storage_dtype": "float64", "references": {"m1": 1, "k1": 1},
-                "band_order": "ascending at each q_hat", "shape_order": ["example", "q_hat", "band"]}
+                 "band_order": "ascending at each q_hat", "shape_order": ["example", "q_hat", "band"],
+                 "checkpoint_rows": checkpoint_rows}
     if resume:
         state = json.loads((root / "manifest.json").read_text())
         if state["identity"] != identity:
@@ -244,19 +247,29 @@ def generate_artifact(root, config, solver, plan, provenance, *, resume=False,
         with_context = execution_batches(solver, masses, springs, plan)
         try:
             chunk_tick = time.perf_counter()
+            committed = first
+            clipped = 0
             for relative, result in with_context:
                 start, stop = first + relative, first + relative + len(result.frequencies)
                 bands[start:stop] = result.frequencies
+                clipped += result.negative_eigenvalues_clipped
+                # Coalesce small compute batches into bounded durable blocks.
+                # Otherwise millions of rows cause quadratic JSON rewrites and
+                # excessive network-volume flushes. Resume redoes only this block.
+                if stop - committed < checkpoint_rows and stop != len(labels):
+                    continue
                 flush_mapping(bands, bands_path)
                 record["chunks"].append({
-                    "start": start, "stop": stop, "sha256": array_hash(bands[start:stop]),
-                    "negative_eigenvalues_clipped": result.negative_eigenvalues_clipped,
+                    "start": committed, "stop": stop, "sha256": array_hash(bands[committed:stop]),
+                    "negative_eigenvalues_clipped": clipped,
                     "generation_write_hash_seconds": time.perf_counter() - chunk_tick,
                 })
                 record["completed_rows"] = stop
                 write_json(root / "manifest.json", state)
                 if after_chunk is not None:
                     after_chunk(name, stop)
+                committed = stop
+                clipped = 0
                 chunk_tick = time.perf_counter()
         finally:
             with_context.close()

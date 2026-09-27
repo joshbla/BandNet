@@ -1,6 +1,10 @@
 import importlib.util
+import json
 import tempfile
 import unittest
+from dataclasses import replace
+from types import SimpleNamespace
+from unittest.mock import patch
 from pathlib import Path
 
 import numpy as np
@@ -17,10 +21,12 @@ from triatomic_genuine_formula import triatomic_frequencies
 HAS_TORCH = importlib.util.find_spec("torch") is not None
 if HAS_TORCH:
     import torch
-    from corrected_pilot import settings
+    from corrected_pilot import settings, production_protocol, production_settings, production_run
     from corrected_inference import infer_files
+    from verify_corrected_pilot import verify_production
     from triatomic_learning import (BandInverse, DifferentiableTriatomic, band_errors, band_loss,
-                                    evaluate_designs, evaluate_population, load_model, predict, train_model)
+                                    evaluate_designs, evaluate_population, load_model, predict, train_model,
+                                    ProductionBandInverse, checked_device, compact_evaluation, train_production)
 
 
 def fixture_plan(chunk=7):
@@ -122,7 +128,25 @@ class CorrectedDataTests(unittest.TestCase):
             config["seed"] += 1
             with self.assertRaisesRegex(ValueError, "identical"):
                 generate_artifact(root, config, TriatomicBatchSolver(GRID, 5), fixture_plan(),
-                                  {"test_fixture": True}, resume=True)
+                                   {"test_fixture": True}, resume=True)
+
+    def test_generation_coalesces_compute_batches_into_resumable_disk_blocks(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "data"
+            config = dict(fixture_config(), train_count=32)
+            def interrupt(name, stop):
+                if name == "train":
+                    self.assertEqual(stop, 14)
+                    raise RuntimeError("simulated grouped-write interruption")
+            with self.assertRaisesRegex(RuntimeError, "grouped-write"):
+                generate_artifact(root, config, TriatomicBatchSolver(GRID, 5), fixture_plan(),
+                                  {"test_fixture": True}, checkpoint_rows=10, after_chunk=interrupt)
+            generated = generate_artifact(root, config, TriatomicBatchSolver(GRID, 5), fixture_plan(),
+                                          {"test_fixture": True}, checkpoint_rows=10, resume=True)
+            self.assertEqual([chunk["stop"] for chunk in generated["splits"]["train"]["chunks"]], [14, 28, 32])
+            artifact = LabeledArtifact(root)
+            expected = TriatomicBatchSolver(GRID, 5).evaluate(*physical_arrays(artifact.arrays["train"][0], 5)).frequencies
+            np.testing.assert_array_equal(artifact.arrays["train"][1], expected)
 
 
 @unittest.skipUnless(HAS_TORCH, "corrected training checks require uv --extra training")
@@ -234,6 +258,163 @@ class CorrectedLearningTests(unittest.TestCase):
             path.write_text(example + "\nBANDNET_PILOT_INTERACTIONS=20\n")
             with self.assertRaisesRegex(ValueError, "duplicate"):
                 settings(path)
+
+    def test_production_matrix_and_fresh_stream_isolation(self):
+        controls = {"device": "cuda:0", "batch_size": 1024, "torch_threads": 1, "checkpoint_steps": 500}
+        protocol = production_protocol(controls)
+        self.assertEqual(len(protocol["fits"]), 17)
+        self.assertEqual(protocol["fits"][0]["data"]["train_count"], 2500000)
+        self.assertEqual(protocol["fits"][0]["training"]["epochs"], 5)
+        self.assertEqual([fit["data"]["interactions"] for fit in protocol["fits"]], [5, *range(5, 21)])
+        for fit in protocol["fits"][1:]:
+            self.assertEqual((fit["data"]["train_count"], fit["training"]["epochs"]), (100000, 100))
+        seen = set()
+        for config in [fit["data"] for fit in protocol["fits"] if fit["data"]["interactions"] == 5] + [protocol["shared"]]:
+            for population in ("train", "validation_dense", "validation_sparse", "test_dense", "test_sparse"):
+                rows = set(map(tuple, sample_labels(32, 5, config["seed"], population)))
+                self.assertFalse(seen.intersection(rows))
+                seen.update(rows)
+        self.assertEqual(protocol["shared"]["test_count_per_population"] * 2, 20000)
+
+    def test_cuda_request_never_silently_runs_on_cpu(self):
+        with patch("torch.cuda.is_available", return_value=False), patch("torch.cuda.is_initialized", return_value=False):
+            with self.assertRaisesRegex(RuntimeError, "unavailable"):
+                checked_device("cuda:0")
+        with self.assertRaises(ValueError):
+            checked_device("auto")
+
+    def test_production_settings_require_cuda_and_baseline_batch(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / ".env.local"
+            example = (Path(__file__).parent / ".env.local.example").read_text().replace("BANDNET_PRODUCTION_TORCH_THREADS=8", "BANDNET_PRODUCTION_TORCH_THREADS=1")
+            path.write_text(example)
+            self.assertEqual(production_settings(path)["batch_size"], 1024)
+            path.write_text(example.replace("BANDNET_PRODUCTION_DEVICE=cuda:0", "BANDNET_PRODUCTION_DEVICE=cpu"))
+            with self.assertRaisesRegex(ValueError, "cuda"):
+                production_settings(path)
+
+    def test_recorded_production_network_shape_without_training_it(self):
+        linear = torch.nn.Linear
+        with patch("torch.nn.Linear", side_effect=lambda left, right, **kwargs: linear(left, right, device="meta", **kwargs)):
+            model = ProductionBandInverse(5, [1, 2, 3])
+        layers = [layer for layer in model.network if isinstance(layer, linear)]
+        self.assertEqual([(layer.in_features, layer.out_features) for layer in layers],
+                         [(1500, 5000), (5000, 2500), (2500, 5000), (5000, 2500), (2500, 5000), (5000, 6)])
+        self.assertEqual(sum(parameter.numel() for parameter in model.parameters()), 57550006)
+
+    def test_training_resume_preserves_adam_cursor_and_final_selection(self):
+        # Reduce widths only inside this unit fixture. CLI production has no such override.
+        with tempfile.TemporaryDirectory() as temporary, patch("triatomic_learning.PRODUCTION_ARCHITECTURE", [8, 4, 8, 4, 8]):
+            root = Path(temporary)
+            fixture_artifact(root / "data")
+            artifact = LabeledArtifact(root / "data")
+            config = {"architecture": "original-five-relu-corrected-io-v1", "device": "cpu",
+                      "epochs": 2, "batch_size": 3, "seed": 74, "torch_threads": 1,
+                      "learning_rate": .001, "checkpoint_steps": 1}
+            provenance = {"fixture": True}
+            direct, direct_report = train_production(root / "direct", artifact, config, provenance)
+            def interrupt(epoch, row):
+                if epoch == 1 and row == 3:
+                    raise RuntimeError("simulated training interruption")
+            with self.assertRaisesRegex(RuntimeError, "simulated"):
+                train_production(root / "resumed", artifact, config, provenance, after_checkpoint=interrupt)
+            with self.assertRaisesRegex(ValueError, "identical"):
+                train_production(root / "resumed", artifact, dict(config, seed=75), provenance, resume=True)
+            resumed, resumed_report = train_production(root / "resumed", artifact, config, provenance, resume=True)
+            for name, value in direct.state_dict().items():
+                torch.testing.assert_close(value, resumed.state_dict()[name], rtol=0, atol=0)
+            self.assertEqual(direct_report["best_epoch"], resumed_report["best_epoch"])
+            self.assertEqual([row["validation_primary"] for row in direct_report["history"]],
+                             [row["validation_primary"] for row in resumed_report["history"]])
+            restored, _ = load_model(root / "resumed" / "best.pt")
+            np.testing.assert_array_equal(predict(direct, artifact.arrays["showcase"][1], 3),
+                                          predict(restored, artifact.arrays["showcase"][1], 3))
+            # Reopening a finished fit neither adds epochs nor touches final tests.
+            _, again = train_production(root / "resumed", artifact, config, provenance, resume=True)
+            self.assertEqual(len(again["history"]), 3)
+
+    def test_compact_cross_count_resume_checksums_and_common_scores(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture_artifact(root / "data")
+            artifact = LabeledArtifact(root / "data")
+            model = BandInverse(20, 4, [1, 2, 3])
+            def interrupt(stop):
+                raise RuntimeError("simulated record interruption")
+            with self.assertRaisesRegex(RuntimeError, "simulated"):
+                compact_evaluation(root / "records", model, artifact, "showcase", 3, "fixture-checkpoint", after_chunk=interrupt)
+            summary = compact_evaluation(root / "records", model, artifact, "showcase", 3, "fixture-checkpoint", resume=True)
+            predictions = np.load(root / "records" / "predictions.npy")
+            np.testing.assert_array_equal(predictions, predict(model, artifact.arrays["showcase"][1], 3))
+            _, scores, failures = evaluate_designs(artifact.arrays["showcase"][1], predictions, 20)
+            self.assertFalse(failures)
+            self.assertAlmostEqual(summary["primary"], scores.mean())
+            self.assertFalse((root / "records" / "reconstructed_bands.npy").exists())
+            with self.assertRaisesRegex(ValueError, "identity"):
+                compact_evaluation(root / "records", model, artifact, "showcase", 3, "different", resume=True)
+            corrupted = np.load(root / "records" / "predictions.npy", mmap_mode="r+")
+            corrupted[0, 0] += 1
+            corrupted.flush()
+            del corrupted
+            with self.assertRaisesRegex(ValueError, "checksum"):
+                compact_evaluation(root / "records", model, artifact, "showcase", 3, "fixture-checkpoint", resume=True)
+
+    def test_matrix_runner_finishes_training_before_final_scoring_and_resumes(self):
+        # CPU-only orchestration fixture, not a GPU check or model-size experiment.
+        controls = {"device": "cuda:0", "batch_size": 3, "torch_threads": 1,
+                    "checkpoint_steps": 2, "max_seconds": 60}
+        protocol = production_protocol(controls)
+        protocol["fits"] = [protocol["fits"][0], protocol["fits"][-1]]
+        for fit in protocol["fits"]:
+            fit["data"].update(train_count=32, validation_count_per_population=3, test_count_per_population=3)
+            fit["training"]["epochs"] = 1
+        protocol["shared"].update(train_count=32, validation_count_per_population=3, test_count_per_population=3)
+        policy = GenerationPolicy(0, 0, 1)
+        provenance = {"source_sha256": {}, "fixture": True}
+        def tune(solver, *args):
+            plan = fixture_plan()
+            return replace(plan, estimated_working_bytes=working_bytes(500, solver.interaction_count, 7, 1)), {"fixture": True}
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            precheck = root / "precheck"
+            precheck.mkdir()
+            (precheck / "report.json").write_text(json.dumps({"passed": True, "provenance": provenance,
+                "hardware": {"fixture": True}, "controls": controls, "generation_policy": policy.__dict__, "files": {}}))
+            output = root / "production"
+            scored = []
+            def evaluate(*args, **kwargs):
+                progress = json.loads((output / "progress.json").read_text())
+                self.assertEqual(len(progress["fits"]), 2)
+                scored.append(args[3])
+                return compact_evaluation(*args, **kwargs)
+            with (patch("triatomic_learning.PRODUCTION_ARCHITECTURE", [8, 4, 8, 4, 8]),
+                  patch("corrected_pilot.production_settings", return_value=controls),
+                  patch("corrected_pilot.production_protocol", return_value=protocol),
+                  patch("corrected_pilot.load_generation_policy", return_value=policy),
+                  patch("corrected_pilot.checked_device", return_value=torch.device("cpu")),
+                  patch("triatomic_learning.checked_device", return_value=torch.device("cpu")),
+                  patch("corrected_pilot.source_identity", return_value=provenance),
+                  patch("corrected_pilot.gpu_identity", return_value={"fixture": True}),
+                  patch("corrected_pilot.preflight", return_value={"fixture": True}),
+                  patch("corrected_pilot.tune_execution", side_effect=tune),
+                  patch("corrected_pilot.shutil.disk_usage", return_value=SimpleNamespace(free=200 * 10**9)),
+                  patch("torch.cuda.empty_cache"),
+                  patch("corrected_pilot.compact_evaluation", side_effect=evaluate)):
+                production_run(output, precheck)
+                first = json.loads((output / "progress.json").read_text())
+                self.assertEqual(first["status"], "completed_pending_independent_audit")
+                self.assertEqual(len(first["evaluations"]), 10)
+                production_run(output, precheck, resume=True)
+                second = json.loads((output / "progress.json").read_text())
+                self.assertEqual(first["fits"], second["fits"])
+                self.assertEqual(first["evaluations"], second["evaluations"])
+                self.assertEqual(len(second["attempts"]), 2)
+                with patch("verify_corrected_pilot.production_protocol", return_value=production_protocol(controls)):
+                    with self.assertRaisesRegex(ValueError, "protocol differs"):
+                        verify_production(output, controls)
+                with patch("verify_corrected_pilot.production_protocol", return_value=protocol):
+                    audited = verify_production(output, controls)
+                self.assertGreater(audited["predictions_and_metrics_checked"], 200)
 
 
 if __name__ == "__main__":

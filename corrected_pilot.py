@@ -1,6 +1,7 @@
-"""Small local corrected run. All run controls come from this repo's .env.local."""
+"""Corrected pilot and fixed production execution. Controls come from .env.local."""
 
 import argparse
+import gc
 import json
 import platform
 import resource
@@ -21,7 +22,9 @@ from triatomic_data import (GRID, POPULATIONS, SHOWCASE_IDS, LabeledArtifact, ad
                             sample_labels, save_array, sha256_file, showcase_labels, write_json)
 from triatomic_execution import tune_execution
 from triatomic_genuine_formula import triatomic_frequencies
-from triatomic_learning import (BandInverse, DifferentiableTriatomic, band_loss,
+from triatomic_learning import (BandInverse, ProductionBandInverse, DifferentiableTriatomic, band_loss,
+                                checked_device, compact_evaluation, load_model, production_payload,
+                                synchronize, training_step, train_production, _save_checkpoint,
                                 evaluate_designs, evaluate_population, predict,
                                 summarize_errors, train_model)
 
@@ -29,7 +32,7 @@ from triatomic_learning import (BandInverse, DifferentiableTriatomic, band_loss,
 ROOT = Path(__file__).resolve().parent
 SOURCE_FILES = ("triatomic_data.py", "triatomic_learning.py", "corrected_pilot.py", "corrected_inference.py",
                 "triatomic_batched.py", "triatomic_genuine_formula.py", "triatomic_execution.py",
-                "generation_policy.py", "generation_resources.py", "test_triatomic_pipeline.py",
+                "generation_policy.py", "generation_resources.py", "test_triatomic_pipeline.py", "verify_corrected_pilot.py",
                 "pyproject.toml", "uv.lock")
 
 
@@ -71,18 +74,19 @@ def settings(path):
     return data, train
 
 
-def preflight(interactions, seed, width):
+def preflight(interactions, seed, width, *, device="cpu"):
     """New-domain/gradient/precision checks, not a repeat solver benchmark."""
     labels = np.concatenate((adversarial_labels(interactions), showcase_labels(interactions),
                              sample_labels(16, interactions, seed, "train")))
     masses, springs = physical_arrays(labels, interactions)
     solver = TriatomicBatchSolver(GRID, interactions)
-    forward = DifferentiableTriatomic(GRID, interactions)
+    selected_device = checked_device(device)
+    forward = DifferentiableTriatomic(GRID, interactions).to(selected_device)
     reference = np.stack([triatomic_frequencies(m, k, GRID) for m, k in zip(masses, springs)])
     cpu = solver.evaluate(masses, springs).frequencies
-    tensor = torch.tensor(labels, dtype=torch.float64, requires_grad=True)
+    tensor = torch.tensor(labels, dtype=torch.float64, requires_grad=True, device=selected_device)
     differentiable = forward(tensor)
-    actual = differentiable.detach().numpy()
+    actual = differentiable.detach().cpu().numpy()
     scale = np.maximum(1, reference.max(axis=(1, 2)))[:, None, None]
     limits = 128 * np.finfo(np.float64).eps
     measures = {}
@@ -95,25 +99,25 @@ def preflight(interactions, seed, width):
                           "maximum_scaled_squared_frequency_error": squared_error}
     # Deliberate residual exercises gradients, including the boundary and
     # repeated-band diagnostic rows. Finiteness is not differentiability proof.
-    loss = band_loss(torch.tensor(reference * 1.01), differentiable)
+    loss = band_loss(torch.tensor(reference * 1.01, device=selected_device), differentiable)
     loss.backward()
     if not torch.isfinite(tensor.grad).all():
         raise AssertionError("nonfinite boundary/degeneracy diagnostic gradient")
     interior = sample_labels(1, interactions, seed + 11, "validation_dense")
     interior[:, 2:] = 1 + 0.8 * interior[:, 2:]
-    probe = torch.tensor(interior, requires_grad=True)
+    probe = torch.tensor(interior, requires_grad=True, device=selected_device)
     gradient_check = torch.autograd.gradcheck(
-        DifferentiableTriatomic([0.03, 0.21, 0.69, 0.97], interactions),
+        DifferentiableTriatomic([0.03, 0.21, 0.69, 0.97], interactions).to(selected_device),
         (probe,), eps=1e-5, atol=2e-5, rtol=2e-4, raise_exception=True)
     torch.manual_seed(seed)
-    model = BandInverse(interactions, width, np.sqrt(np.mean(reference**2, axis=(0, 1))))
+    model = BandInverse(interactions, width, np.sqrt(np.mean(reference**2, axis=(0, 1)))).to(selected_device)
     with torch.no_grad():
-        target_cpu, target_reference = torch.tensor(cpu), torch.tensor(reference)
+        target_cpu, target_reference = torch.tensor(cpu, device=selected_device), torch.tensor(reference, device=selected_device)
         cpu_loss = band_loss(target_cpu, forward(model(target_cpu))).item()
         reference_loss = band_loss(target_reference, forward(model(target_reference))).item()
     if abs(cpu_loss - reference_loss) > 1e-10 * max(1, abs(reference_loss)):
         raise AssertionError("reference/production training-loss parity failed")
-    return {"examples": len(labels), "label_sha256": array_hash(labels), "comparison": measures,
+    return {"device": str(selected_device), "examples": len(labels), "label_sha256": array_hash(labels), "comparison": measures,
             "finite_boundary_and_repeated_band_gradients": True, "interior_gradcheck": gradient_check,
             "reference_input_loss": reference_loss, "production_input_loss": cpu_loss,
             "loss_absolute_difference": abs(cpu_loss - reference_loss),
@@ -266,11 +270,344 @@ def sizing_exercise(output):
     write_json(output / "report.json", report)
 
 
+def production_settings(path):
+    types = {"DEVICE": str, "BATCH_SIZE": int, "TORCH_THREADS": int,
+             "CHECKPOINT_STEPS": int, "MAX_SECONDS": int}
+    values = {}
+    for line in Path(path).read_text().splitlines():
+        key, separator, value = line.partition("=")
+        key = key.strip()
+        if not key.startswith("BANDNET_PRODUCTION_"):
+            continue
+        name = key.removeprefix("BANDNET_PRODUCTION_")
+        if not separator or name not in types or name in values:
+            raise ValueError(f"unknown, duplicate or malformed production setting: {key}")
+        values[name] = types[name](value.strip())
+    if set(values) != set(types):
+        raise ValueError("all BANDNET_PRODUCTION settings must be explicit in .env.local")
+    if values["DEVICE"] != "cuda:0":
+        raise ValueError("production execution requires explicit cuda:0")
+    for name in types.keys() - {"DEVICE"}:
+        if values[name] < 1:
+            raise ValueError(f"positive {name} required")
+    if values["BATCH_SIZE"] != 1024:
+        raise ValueError("baseline batch size is 1024; changing it requires a protocol revision")
+    if values["TORCH_THREADS"] > detect_resources().cpu_budget:
+        raise ValueError("requested threads exceed detected CPU allocation")
+    return {name.lower(): value for name, value in values.items()}
+
+
+def production_protocol(controls):
+    """A fixed 17-fit experiment, with fresh named streams and no search loop."""
+    train = {"architecture": "original-five-relu-corrected-io-v1", "device": controls["device"],
+             "batch_size": controls["batch_size"], "torch_threads": controls["torch_threads"],
+             "checkpoint_steps": controls["checkpoint_steps"], "learning_rate": 0.001, "seed": 271829}
+    base = {"sampling": "half-dense-half-independent-p05-zero-mask-v1",
+            "mass_bounds": [0.1, 10], "spring_bounds": [0, 10],
+            "validation_count_per_population": 2048}
+    fits = [{"name": "main-m5", "data": dict(base, interactions=5, seed=271828,
+             train_count=2500000, test_count_per_population=125000),
+             "training": dict(train, epochs=5)}]
+    fits.extend({"name": f"study-m{k}", "data": dict(base, interactions=k, seed=314159,
+                 train_count=100000, test_count_per_population=5000),
+                 "training": dict(train, epochs=100, seed=314160)} for k in range(5, 21))
+    return {"schema": "corrected-full-three-band-v1", "fits": fits,
+            "shared": dict(base, interactions=5, seed=161803, train_count=32,
+                           validation_count_per_population=2, test_count_per_population=10000),
+            "shared_use": "only test_dense/test_sparse form the common 20000-target M5 population; auxiliary schema rows unused",
+            "selection": "minimum pooled dense/sparse validation primary, including initialization; final tests after all fits",
+            "precision": "float64 network/data/metrics and complex128 physics",
+            "optimizer": "adopted corrected Adam 0.001, no scheduler, no label penalty",
+            "input": "1500 frequency features with training-only band RMS scales; no repeated q column",
+            "output": "adopted bounded sigmoid ratios m2,m3,k2..kM; fixed m1=k1=1",
+            "seed_policy": "single fixed optimizer seed per family; independent main/study/shared data namespaces; no search"}
+
+
+def source_identity():
+    return {"code_base_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+            "source_sha256": {name: sha256_file(ROOT / name) for name in SOURCE_FILES},
+            "numpy": np.__version__, "torch": str(torch.__version__), "platform": platform.platform(),
+            "cuda_runtime": torch.version.cuda}
+
+
+def gpu_identity():
+    device = checked_device("cuda:0")
+    properties = torch.cuda.get_device_properties(device)
+    return {"name": properties.name, "total_memory_bytes": properties.total_memory,
+            "capability": [properties.major, properties.minor],
+            "nvidia_smi": subprocess.check_output(
+                ["nvidia-smi", "--query-gpu=uuid,name,driver_version,memory.total", "--format=csv,noheader"], text=True).strip()}
+
+
+def retain_sources(output, provenance):
+    (output / "sources").mkdir()
+    for name, digest in provenance["source_sha256"].items():
+        shutil.copyfile(ROOT / name, output / "sources" / name)
+        if sha256_file(output / "sources" / name) != digest:
+            raise ValueError("source changed while taking snapshot")
+
+
+def gpu_preflight(output):
+    """Bounded numerical and full-architecture throughput checks, not a fit search."""
+    controls = production_settings(ROOT / ".env.local")
+    policy = load_generation_policy(ROOT / ".env.local")
+    if output.exists() or not output.parent.is_dir():
+        raise ValueError("preflight output must be new with an existing parent")
+    device = checked_device(controls["device"])
+    torch.set_num_threads(controls["torch_threads"])
+    torch.use_deterministic_algorithms(True)
+    hardware = gpu_identity()
+    provenance = source_identity()
+    output.mkdir()
+    retain_sources(output, provenance)
+    report = {"passed": False, "provenance": provenance, "hardware": hardware,
+              "controls": controls, "generation_policy": policy.__dict__,
+              "resources": detect_resources().as_dict(), "counts": {},
+              "scope": "M5/M20 numerical checks and full-size batch updates; no accuracy/sizing campaign"}
+    write_json(output / "report.json", report)
+    started = time.monotonic()
+    # Use a separate stream from every development/production population.
+    for interactions in (5, 20):
+        if time.monotonic() - started >= controls["max_seconds"]:
+            raise TimeoutError("preflight time allowance exhausted")
+        numerical = preflight(interactions, 424242, 8, device=controls["device"])
+        solver = TriatomicBatchSolver(GRID, interactions)
+        labels = sample_labels(controls["batch_size"], interactions, 424243, "train")
+        plan, tuning = tune_execution(solver, *physical_arrays(labels, interactions), policy)
+        data_config = dict(production_protocol(controls)["shared"], interactions=interactions,
+                           seed=424244, train_count=controls["batch_size"],
+                           validation_count_per_population=2048, test_count_per_population=2)
+        tick = time.perf_counter()
+        generate_artifact(output / f"m{interactions}-data", data_config, solver, plan, provenance, checkpoint_rows=4096)
+        generation_seconds = time.perf_counter() - tick
+        artifact = LabeledArtifact(output / f"m{interactions}-data")
+        target = np.array(artifact.arrays["train"][1], copy=True)
+        torch.manual_seed(424245)
+        model = ProductionBandInverse(interactions, np.sqrt(np.mean(target**2, axis=(0, 1)))).to(device)
+        forward = DifferentiableTriatomic(GRID, interactions).to(device)
+        optimizer = torch.optim.Adam(model.parameters(), lr=0.001, foreach=False)
+        torch.cuda.reset_peak_memory_stats(device)
+        torch.cuda.empty_cache()
+        for _ in range(2):
+            training_step(model, forward, optimizer, target, device)
+        durations, losses = [], []
+        for _ in range(5):
+            if time.monotonic() - started >= controls["max_seconds"]:
+                raise TimeoutError("preflight time allowance exhausted")
+            synchronize(device)
+            tick = time.perf_counter()
+            # Include the same shuffled mmap read and transfer used by production.
+            order = np.random.default_rng(424246).permutation(len(target))
+            batch = np.array(artifact.arrays["train"][1][order], copy=True)
+            losses.append(training_step(model, forward, optimizer, batch, device))
+            synchronize(device)
+            durations.append(time.perf_counter() - tick)
+        training_config = dict(production_protocol(controls)["fits"][0]["training"])
+        checkpoint = output / f"m{interactions}.pt"
+        tick = time.perf_counter()
+        payload = production_payload(model, artifact, training_config, provenance, 0, None)
+        _save_checkpoint(checkpoint, payload)
+        save_seconds = time.perf_counter() - tick
+        tick = time.perf_counter()
+        _save_checkpoint(output / f"m{interactions}-resume-probe.pt",
+                         {"current": model.state_dict(), "optimizer": optimizer.state_dict(), "best": payload})
+        resume_save_seconds = time.perf_counter() - tick
+        tick = time.perf_counter()
+        for population in ("validation_dense", "validation_sparse"):
+            validation, _ = evaluate_population(model, artifact, population, controls["batch_size"], retain_curves=False)
+            if validation["invalid_prediction_count"]:
+                raise ArithmeticError("full-validation probe produced invalid designs")
+        validation_seconds = time.perf_counter() - tick
+        probe = np.array(artifact.arrays["showcase"][1], copy=True)
+        before = predict(model, probe, controls["batch_size"])
+        restored, _ = load_model(checkpoint, device=controls["device"])
+        np.testing.assert_array_equal(before, predict(restored, probe, controls["batch_size"]))
+        cpu_model, _ = load_model(checkpoint)
+        cpu_predictions = predict(cpu_model, probe, controls["batch_size"])
+        np.testing.assert_allclose(before, cpu_predictions, rtol=1e-10, atol=1e-10)
+        _, scores, failed = evaluate_designs(probe, before, interactions)
+        if failed or not np.all(np.isfinite(scores)):
+            raise ArithmeticError("GPU checkpoint predictions failed common CPU scoring")
+        row = {"numerical": numerical, "calibration": tuning,
+               "generation_write_seconds": generation_seconds,
+               "generated_rows": sum(len(pair[0]) for pair in artifact.arrays.values()),
+               "warmup_updates": 2, "measured_updates": 5, "batch_size": controls["batch_size"],
+               "transfer_and_mmap_inclusive_step_seconds": durations, "losses": losses,
+               "median_step_seconds": float(np.median(durations)),
+               "peak_cuda_allocated_bytes": torch.cuda.max_memory_allocated(device),
+               "peak_cuda_reserved_bytes": torch.cuda.max_memory_reserved(device),
+               "checkpoint_write_seconds": save_seconds, "checkpoint_sha256": sha256_file(checkpoint),
+               "resume_checkpoint_write_seconds": resume_save_seconds,
+               "full_validation_4096_seconds": validation_seconds,
+               "cuda_reload_exact": True, "cpu_reload_prediction_tolerance": {"rtol": 1e-10, "atol": 1e-10},
+               "common_cpu_scoring_passed": True}
+        report["counts"][str(interactions)] = row
+        write_json(output / "report.json", report)
+        del model, restored, cpu_model, optimizer, forward, artifact, payload
+        gc.collect()
+        torch.cuda.empty_cache()
+    median = max(row["median_step_seconds"] for row in report["counts"].values())
+    steps = 5 * ((2500000 + 1023) // 1024) + 16 * 100 * ((100000 + 1023) // 1024)
+    report.update(passed=True, elapsed_seconds=time.monotonic() - started,
+                  optimizer_steps_in_full_matrix=steps,
+                  training_only_projection_seconds=steps * median,
+                  projection_scope="endpoint median extrapolation only; excludes validation, checkpoints, generation, evaluation, auditing and interruptions",
+                  process_lifetime_peak_rss_bytes=int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss) * 1024)
+    report["files"] = {str(path.relative_to(output)): sha256_file(path)
+                       for path in sorted(output.rglob("*")) if path.is_file() and path.name != "report.json"}
+    write_json(output / "report.json", report)
+    print(json.dumps({"passed": True, "report": str(output / "report.json"),
+                      "training_only_projection_seconds": report["training_only_projection_seconds"]}), flush=True)
+
+
+def production_run(output, preflight_root, *, resume=False):
+    controls = production_settings(ROOT / ".env.local")
+    policy = load_generation_policy(ROOT / ".env.local")
+    device = checked_device(controls["device"])
+    torch.set_num_threads(controls["torch_threads"])
+    torch.use_deterministic_algorithms(True)
+    provenance = source_identity()
+    precheck = json.loads((preflight_root / "report.json").read_text())
+    expected_controls = dict(precheck["controls"], max_seconds=controls["max_seconds"])
+    if (not precheck["passed"] or precheck["provenance"] != provenance
+            or precheck["hardware"] != gpu_identity() or expected_controls != controls
+            or precheck["generation_policy"] != policy.__dict__):
+        raise ValueError("a successful preflight on this exact source/configuration/GPU stack is required")
+    for name, digest in precheck["files"].items():
+        if sha256_file(preflight_root / name) != digest:
+            raise ValueError("preflight evidence checksum mismatch")
+    protocol = production_protocol(controls)
+    protocol.update(provenance=provenance, generation_policy=policy.__dict__,
+                    preflight_report_sha256=sha256_file(preflight_root / "report.json"), hardware=precheck["hardware"])
+    if resume:
+        if json.loads((output / "protocol.json").read_text()) != protocol:
+            raise ValueError("resume requires the identical frozen production protocol")
+        state = json.loads((output / "progress.json").read_text())
+    else:
+        if output.exists() or not output.parent.is_dir():
+            raise ValueError("production output must be new with an existing parent")
+        if shutil.disk_usage(output.parent).free < 150 * 10**9:
+            raise OSError("production requires at least 150 GB free on the persistent volume")
+        output.mkdir()
+        retain_sources(output, provenance)
+        write_json(output / "protocol.json", protocol)
+        state = {"status": "running", "fits": {}, "evaluations": {}, "attempts": []}
+    for attempt in state["attempts"]:
+        if attempt["status"] == "running":
+            attempt["status"] = "interrupted_duration_unknown"
+    attempt = {"resume": resume, "status": "running", "elapsed_seconds": None,
+               "max_seconds": controls["max_seconds"]}
+    state["attempts"].append(attempt)
+    state["status"] = "running"
+    write_json(output / "progress.json", state)
+    started = time.monotonic()
+    deadline = started + controls["max_seconds"]
+
+    def budget_check():
+        if time.monotonic() >= deadline:
+            raise TimeoutError("execution allowance exhausted; resume only under an approved further budget")
+        if shutil.disk_usage(output).free < 20 * 10**9:
+            raise OSError("less than 20 GB disk reserve remains")
+
+    def dataset(name, config):
+        budget_check()
+        path = output / f"{name}-data"
+        if (path / "manifest.json").exists():
+            saved = json.loads((path / "manifest.json").read_text())
+            if saved["identity"]["configuration"] != config or saved["identity"]["provenance"] != provenance:
+                raise ValueError("production dataset identity mismatch")
+            if saved["complete"]:
+                return LabeledArtifact(path)
+        solver = TriatomicBatchSolver(GRID, config["interactions"])
+        probe = sample_labels(1024, config["interactions"], config["seed"], "train")
+        plan, tuning = tune_execution(solver, *physical_arrays(probe, config["interactions"]), policy)
+        calibration_path = output / f"{name}-calibrations.json"
+        calibrations = json.loads(calibration_path.read_text()) if calibration_path.exists() else []
+        calibrations.append(tuning)
+        write_json(calibration_path, calibrations)
+        generate_artifact(path, config, solver, plan, provenance, resume=path.exists(),
+                          after_chunk=lambda name, stop: budget_check(), checkpoint_rows=4096)
+        return LabeledArtifact(path)
+
+    try:
+        # Finish all fixed training before examining fresh final populations.
+        for fit in protocol["fits"]:
+            budget_check()
+            name, config = fit["name"], fit["data"]
+            if name in state["fits"]:
+                continue
+            numerical_path = output / f"{name}-preflight.json"
+            if not numerical_path.exists():
+                write_json(numerical_path, preflight(config["interactions"], 424242, 8, device=controls["device"]))
+            artifact = dataset(name, config)
+            training_path = output / name
+            model, training = train_production(training_path, artifact, fit["training"], provenance,
+                                                resume=training_path.exists(), deadline=deadline)
+            state["fits"][name] = {"checkpoint_sha256": training["checkpoint_sha256"],
+                                    "dataset_manifest_sha256": sha256_file(artifact.root / "manifest.json")}
+            write_json(output / "progress.json", state)
+            del model, artifact
+            gc.collect()
+            torch.cuda.empty_cache()
+        shared = dataset("shared-m5", protocol["shared"])
+        for fit in protocol["fits"]:
+            name = fit["name"]
+            budget_check()
+            checkpoint = output / name / "best.pt"
+            if sha256_file(checkpoint) != state["fits"][name]["checkpoint_sha256"]:
+                raise ValueError("completed checkpoint checksum mismatch")
+            model, payload = load_model(checkpoint, device=controls["device"])
+            artifact = dataset(name, fit["data"])
+            if payload["dataset_manifest_sha256"] != sha256_file(artifact.root / "manifest.json"):
+                raise ValueError("checkpoint dataset mismatch")
+            evaluations = [(population, artifact, population) for population in ("test_dense", "test_sparse", "adversarial", "showcase")]
+            if name.startswith("study-"):
+                evaluations.extend((f"shared_m5_{population}", shared, population) for population in ("test_dense", "test_sparse"))
+            for label, targets, population in evaluations:
+                budget_check()
+                path = output / name / label
+                summary = compact_evaluation(path, model, targets, population, controls["batch_size"],
+                                             state["fits"][name]["checkpoint_sha256"], resume=path.exists(),
+                                             after_chunk=lambda stop: budget_check())
+                state["evaluations"][f"{name}/{label}"] = summary
+                write_json(output / "progress.json", state)
+                if summary["invalid_prediction_count"]:
+                    raise ArithmeticError("invalid final designs; complete records retained for review")
+            del model, artifact
+            gc.collect()
+            torch.cuda.empty_cache()
+        state["status"] = "completed_pending_independent_audit"
+        attempt["status"] = "completed"
+    except BaseException as error:
+        state["status"] = "paused" if isinstance(error, TimeoutError) else "failed"
+        attempt["status"] = state["status"]
+        attempt["error"] = f"{type(error).__name__}: {error}"
+        raise
+    finally:
+        attempt["elapsed_seconds"] = time.monotonic() - started
+        write_json(output / "progress.json", state)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--sizing", action="store_true", help="run the fixed five-fit validation-only local sizing exercise")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--sizing", action="store_true", help="historical bounded sizing exercise")
+    modes.add_argument("--gpu-preflight", action="store_true", help="required actual-GPU checks and full-batch throughput")
+    modes.add_argument("--production", action="store_true", help="fixed full-size CUDA matrix; paid launch requires owner approval")
+    parser.add_argument("--preflight", type=Path, help="successful GPU preflight artifact required by production")
+    parser.add_argument("--resume", action="store_true", help="explicit production resume with identical source/configuration")
     args = parser.parse_args()
+    if (args.resume or args.preflight is not None) and not args.production:
+        parser.error("--resume and --preflight are production-only")
+    if args.production:
+        if args.preflight is None:
+            parser.error("--production requires --preflight")
+        production_run(args.output, args.preflight, resume=args.resume)
+        return
+    if args.gpu_preflight:
+        gpu_preflight(args.output)
+        return
     if args.sizing:
         sizing_exercise(args.output)
         return
