@@ -16,7 +16,15 @@ stiffness from physical neighbor-bond energies, mass-normalizes it, and uses
 batched Hermitian eigenvalue solves. Its bounded numerical comparisons and
 known-limit tests are in `test_triatomic_batched.py`. It does not replace the
 reference as the correctness authority and is not connected to historical
-training or inference. Local benchmark evidence and the near-zero numerical
+training or inference. The separate corrected `triatomic_data.py`,
+`triatomic_learning.py`, `corrected_pilot.py` and `corrected_inference.py` now
+connect labeled data, band-objective learning and common evaluation. The
+float64 differentiable solver is compared against the reference and CPU solver;
+bounded forward/gradient/integration checks are in `test_triatomic_pipeline.py`.
+The first local M5 result and adopted sampling/loss contract are recorded in
+the workspace's `THREE_BAND_RERUN_MAP.md`. It is an integration pilot, not a
+replacement publication result or execution of the retained M5-M20 study.
+Local benchmark evidence and the near-zero numerical
 acceptance clarification live in the workspace documentation's
 `DATA_GENERATION_PERFORMANCE.md`.
 

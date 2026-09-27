@@ -24,18 +24,24 @@ legacy = [
     { name = "pandas" },
     { name = "torch" },
 ]
+training = [
+    { name = "matplotlib" },
+    { name = "torch" },
+]
 
 [package.metadata]
 requires-dist = [
     { name = "matplotlib", marker = "extra == 'legacy'" },
+    { name = "matplotlib", marker = "extra == 'training'" },
     { name = "numpy" },
     { name = "openpyxl", marker = "extra == 'legacy'" },
     { name = "pandas", marker = "extra == 'legacy'" },
     { name = "psutil" },
     { name = "threadpoolctl" },
     { name = "torch", marker = "extra == 'legacy'" },
+    { name = "torch", marker = "extra == 'training'" },
 ]
-provides-extras = ["legacy"]
+provides-extras = ["training", "legacy"]
 
 [[package]]
 name = "contourpy"

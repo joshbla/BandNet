@@ -11,8 +11,12 @@ uv sync --frozen
 ```
 
 The lightweight dependencies are NumPy plus psutil for resource discovery and
-threadpoolctl for supported native CPU thread-pool control. Training dependencies
-remain in the separate legacy extra.
+threadpoolctl for supported native CPU thread-pool control. Corrected training
+and figure export use the `training` extra:
+
+```bash
+uv sync --frozen --extra training
+```
 
 The historical training, plotting, and inference scripts require the larger
 legacy dependency set:
@@ -29,8 +33,15 @@ Run the reference and independent batched-solver validation suites with:
 uv run --frozen python -m unittest discover -v
 ```
 
-The suite does not generate datasets, train models, or invoke `Core.py`.
-It writes small temporary fixtures and arrays for resource-policy and output checks.
+The lightweight suite writes small temporary fixtures and arrays. With the
+`training` extra it also runs tiny corrected training/checkpoint/inference tests;
+it never invokes `Core.py`. Run all 52 checks with:
+
+```bash
+uv run --frozen --extra training python -m unittest discover -v
+```
+
+Without PyTorch the eight corrected learning tests are explicitly skipped.
 
 ## Batched Three-Band CPU Candidate
 
@@ -47,7 +58,82 @@ The candidate was compared with the independent reference on seeded dense,
 sparse and difficult cases. Near acoustic zero, squared-frequency agreement is
 checked because taking a square root magnifies eigenvalue roundoff. The exact
 acceptance policy and benchmark evidence are in the workspace documentation's
-`DATA_GENERATION_PERFORMANCE.md`. This is not yet an integrated training pipeline.
+`DATA_GENERATION_PERFORMANCE.md`. The separate corrected pilot below now connects
+this solver to durable labels, batch-backed training and consistent evaluation.
+
+## Corrected Local Training Pilot
+
+The owner adopted bounded mass ratios `[0.1,10]`, passive spring ratios `[0,10]`,
+fixed `m1=k1=1`, and band-based loss, and retained the M5-M20 study. The first
+local integration run uses M5 only. Configure every `BANDNET_PILOT_*` and
+`BANDNET_GENERATION_*` value in `.env.local`; the example defines a 1,024-example,
+five-epoch CPU pilot. These commands read that file, not process environment
+variables. Create an artifact parent directory first, then choose a new run path:
+
+```bash
+uv run --frozen --extra training python corrected_pilot.py --output artifacts/corrected-m5-pilot
+```
+
+The runner refuses to overwrite a run. Its output includes:
+
+- Immutable source snapshots, an explicit protocol, preflight and calibration
+  reports, and file SHA-256 identities.
+- Float64 frequency arrays `(N,500,3)`, float64 generating labels `(N,K+1)`,
+  one shared grid, and a manifest with chunk checksums and progress. Label order
+  is `m2,m3,k2,...,kK`. Five-interaction showcase vectors retain their historical
+  identities; higher-count versions pad the extra physical springs with zeros.
+- Independent seeded train, dense/sparse validation and dense/sparse test
+  populations, plus separate boundary and showcase populations. Training uses
+  an exact half dense/half independently masked mixture. A masked example can
+  happen to have no zeros. Masses and active springs use continuous uniforms;
+  upper endpoints are covered by boundary cases rather than random draws.
+- A small float64 network with two 128-wide tanh hidden layers, bounded sigmoid
+  decoding, training-only per-band input scales, Adam, validation-selected
+  checkpoints, and separate generation/training/evaluation timings.
+- Full-precision predicted labels, reconstructed bands, per-band scores and
+  separate parameter diagnostics, plus four-panel and validation-history figures.
+
+The loss averages **squared** target-RMS-normalized band errors. Checkpoint
+selection and reported primary scores average per-band normalized **RMSE**, with
+equal band and example weights. No generating-label penalty is applied. This is
+a new architecture/objective, not a historical checkpoint continuation. Sigmoid
+decoding usually predicts interior springs, so zero-spring targets can be
+approximated without claiming exact zero-support recovery. Failed designs remain
+counted and make the population primary score undefined; they are not dropped.
+
+`triatomic_data.generate_artifact(..., resume=True)` explicitly resumes an
+interrupted dataset with identical source/configuration, verifying completed
+prefixes before rewriting uncommitted rows. The command above creates new runs;
+training resume is not implemented. `LabeledArtifact` rejects incomplete or
+checksum-invalid datasets and reads dense frequency batches from read-only mmap
+arrays. Parameter arrays and permutation indices remain pilot-sized in RAM.
+
+### Standalone Corrected Inference
+
+Load the saved model in a new process and supply the actual target grid:
+
+```bash
+uv run --frozen --extra training python corrected_inference.py --checkpoint artifacts/corrected-m5-pilot/training/best.pt --targets artifacts/corrected-m5-pilot/data/showcase.bands.npy --grid artifacts/corrected-m5-pilot/data/q_hat.npy --output artifacts/corrected-m5-pilot/standalone-showcase
+```
+
+This command streams output arrays and uses the same decoder, corrected CPU
+forward solver and target-normalized scorer as pilot evaluation. Frequency-only
+targets can be shared across models with different interaction counts, supporting
+the later M5-M20 study. That study has not been executed by this pilot.
+
+After standalone showcase inference, verify the retained files, source snapshots,
+checkpoint identity, all final predictions/scores and integrated/standalone
+agreement. The report path must be new in an existing directory:
+
+```bash
+uv run --frozen --extra training python verify_corrected_pilot.py --run artifacts/corrected-m5-pilot --report /absolute/existing/directory/corrected-pilot-audit.json
+```
+
+The audit exports the original raw run report together with verification evidence.
+The numerical arrays, checkpoint and source snapshots remain under the run path.
+Local `artifacts/` is Git-ignored. The workspace documentation retains the initial
+pilot report and its limitations in `THREE_BAND_RERUN_MAP.md`. Neither command
+starts cloud compute or determines appropriate RunPod reserve values.
 
 ## Fixed-M5 Baseline Benchmark
 

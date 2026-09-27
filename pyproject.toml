@@ -10,6 +10,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+training = [
+    "matplotlib",
+    "torch",
+]
 legacy = [
     "matplotlib",
     "openpyxl",
