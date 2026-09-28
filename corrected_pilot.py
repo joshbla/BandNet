@@ -2,13 +2,17 @@
 
 import argparse
 import gc
+import hashlib
 import json
+import os
 import platform
 import resource
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
+import uuid
 from pathlib import Path
 
 import numpy as np
@@ -25,6 +29,7 @@ from triatomic_genuine_formula import triatomic_frequencies
 from triatomic_learning import (BandInverse, ProductionBandInverse, DifferentiableTriatomic, band_loss,
                                 checked_device, compact_evaluation, load_model, production_payload,
                                 synchronize, training_step, train_production, _save_checkpoint,
+                                save_resume_checkpoint, read_resume_checkpoint, qualify_checkpoint_model,
                                 evaluate_designs, evaluate_population, predict,
                                 summarize_errors, train_model)
 
@@ -297,11 +302,79 @@ def production_settings(path):
     return {name.lower(): value for name, value in values.items()}
 
 
+def update_local_settings(path, updates):
+    """Change only named local settings, without exposing any other local values."""
+    lines, found = [], set()
+    for line in path.read_text().splitlines():
+        key, separator, value = line.partition("=")
+        key = key.strip()
+        if key in updates:
+            if not separator or key in found:
+                raise ValueError(f"duplicate or malformed local setting: {key}")
+            found.add(key)
+            line = f"{key}={updates[key]}"
+        lines.append(line)
+    if found != set(updates):
+        raise ValueError("automatic configuration requires the documented local setting names")
+    with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, prefix=".settings-", delete=False) as output:
+        temporary = Path(output.name)
+        try:
+            output.write("\n".join(lines) + "\n")
+            output.flush()
+            os.fsync(output.fileno())
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+
+def configure_machine_resources(path):
+    resources = detect_resources()
+    # Dedicated benchmark allocation: scale headroom with the actual machine.
+    cpu_reserve = min(resources.cpu_budget - 1, max(1, int(np.ceil(resources.cpu_budget * .1))))
+    ram_mib = int(np.ceil(resources.available_memory_bytes * .1 / 1024**2))
+    available_threads = resources.cpu_budget - cpu_reserve
+    update_local_settings(path, {"BANDNET_GENERATION_CPU_RESERVE": cpu_reserve,
+                                "BANDNET_GENERATION_RAM_RESERVE_MIB": ram_mib,
+                                "BANDNET_PRODUCTION_TORCH_THREADS": available_threads})
+    return {"resources": resources.as_dict(), "cpu_reserve": cpu_reserve,
+            "ram_reserve_mib": ram_mib, "available_threads": available_threads,
+            "policy": "10 percent CPU/RAM headroom; retain at least one compute CPU"}
+
+
+def tune_training_threads(model, forward, optimizer, target, device, available, seconds):
+    candidates = sorted({1, available, *(2**power for power in range(available.bit_length()) if 2**power <= available)})
+    started = time.perf_counter()
+    initial = {name: value.detach().cpu().clone() for name, value in model.state_dict().items()}
+    measured = []
+    for threads in candidates:
+        if measured and time.perf_counter() - started >= seconds:
+            break
+        torch.set_num_threads(threads)
+        model.load_state_dict(initial)
+        optimizer.state.clear()
+        training_step(model, forward, optimizer, target, device)
+        durations = []
+        for _ in range(2):
+            synchronize(device)
+            tick = time.perf_counter()
+            training_step(model, forward, optimizer, target, device)
+            synchronize(device)
+            durations.append(time.perf_counter() - tick)
+        measured.append({"threads": threads, "seconds": durations, "median_seconds": float(np.median(durations))})
+    winner = min(measured, key=lambda row: row["median_seconds"])
+    torch.set_num_threads(winner["threads"])
+    model.load_state_dict(initial)
+    model.zero_grad(set_to_none=True)
+    optimizer.state.clear()
+    return {"selected_threads": winner["threads"], "candidates": candidates, "measurements": measured,
+            "elapsed_seconds": time.perf_counter() - started, "search_complete": len(measured) == len(candidates),
+            "selection": "fastest measured transfer-inclusive full-batch update; bounded search, not a global optimum"}
+
+
 def production_protocol(controls):
     """A fixed 17-fit experiment, with fresh named streams and no search loop."""
-    train = {"architecture": "original-five-relu-corrected-io-v1", "device": controls["device"],
-             "batch_size": controls["batch_size"], "torch_threads": controls["torch_threads"],
-             "checkpoint_steps": controls["checkpoint_steps"], "learning_rate": 0.001, "seed": 271829}
+    train = {"architecture": "original-five-relu-corrected-io-v1",
+             "batch_size": controls["batch_size"], "learning_rate": 0.001, "seed": 271829}
     base = {"sampling": "half-dense-half-independent-p05-zero-mask-v1",
             "mass_bounds": [0.1, 10], "spring_bounds": [0, 10],
             "validation_count_per_population": 2048}
@@ -311,7 +384,7 @@ def production_protocol(controls):
     fits.extend({"name": f"study-m{k}", "data": dict(base, interactions=k, seed=314159,
                  train_count=100000, test_count_per_population=5000),
                  "training": dict(train, epochs=100, seed=314160)} for k in range(5, 21))
-    return {"schema": "corrected-full-three-band-v1", "fits": fits,
+    return {"schema": "corrected-full-three-band-v2", "fits": fits,
             "shared": dict(base, interactions=5, seed=161803, train_count=32,
                            validation_count_per_population=2, test_count_per_population=10000),
             "shared_use": "only test_dense/test_sparse form the common 20000-target M5 population; auxiliary schema rows unused",
@@ -328,6 +401,55 @@ def source_identity():
             "source_sha256": {name: sha256_file(ROOT / name) for name in SOURCE_FILES},
             "numpy": np.__version__, "torch": str(torch.__version__), "platform": platform.platform(),
             "cuda_runtime": torch.version.cuda}
+
+
+def production_provenance(source):
+    """Exact source/lockfile contents define the experiment; host/runtime do not."""
+    return {"source_sha256": dict(source["source_sha256"])}
+
+
+def check_preflight_evidence(report):
+    if "schema" not in report or report["schema"] != "corrected-gpu-preflight-v2" or report["passed"] is not True:
+        raise ValueError("successful portable GPU preflight required")
+    if set(report["counts"]) != {"5", "20"}:
+        raise ValueError("preflight must qualify both M5 and M20")
+    for row in report["counts"].values():
+        if (row["cuda_reload_exact"] is not True or row["adam_reload_next_update_exact"] is not True
+                or row["common_cpu_scoring_passed"] is not True
+                or row["numerical"]["interior_gradcheck"] is not True
+                or row["numerical"]["finite_boundary_and_repeated_band_gradients"] is not True
+                or row["cpu_reload_prediction_tolerance"] != {"rtol": 1e-10, "atol": 1e-10}
+                or row["batch_size"] != report["controls"]["batch_size"]
+                or row["warmup_updates"] != 2 or row["measured_updates"] != 5
+                or not np.isfinite(row["median_step_seconds"]) or row["median_step_seconds"] <= 0):
+            raise ValueError("incomplete numerical or timing preflight evidence")
+
+
+def validate_execution_history(root, protocol, attempts):
+    """Portable run archives keep the exact admitted report for every machine."""
+    executions = {}
+    if protocol["schema"] != "corrected-full-three-band-v2":
+        raise ValueError("portable execution requires the v2 production protocol")
+    for attempt in attempts:
+        identity = attempt["execution_id"]
+        if (not isinstance(identity, str) or len(identity) != 32
+                or any(char not in "0123456789abcdef" for char in identity) or identity in executions):
+            raise ValueError("invalid or duplicate execution identity")
+        path = Path(root) / "executions" / f"{identity}.json"
+        if sha256_file(path) != attempt["preflight_report_sha256"]:
+            raise ValueError("archived preflight checksum mismatch")
+        report = json.loads(path.read_text())
+        check_preflight_evidence(report)
+        if production_provenance(report["provenance"]) != protocol["provenance"]:
+            raise ValueError("execution source differs from the experiment")
+        for key, value in production_protocol(report["controls"]).items():
+            if protocol[key] != value:
+                raise ValueError("execution changed the scientific protocol")
+        if (dict(report["controls"], max_seconds=attempt["controls"]["max_seconds"]) != attempt["controls"]
+                or report["generation_policy"] != attempt["generation_policy"]):
+            raise ValueError("execution operational settings differ from its qualification")
+        executions[identity] = attempt
+    return executions
 
 
 def gpu_identity():
@@ -347,9 +469,19 @@ def retain_sources(output, provenance):
             raise ValueError("source changed while taking snapshot")
 
 
-def gpu_preflight(output):
+def gpu_preflight(output, *, timing_only=False):
     """Bounded numerical and full-architecture throughput checks, not a fit search."""
+    started = time.monotonic()
+    automatic = None
+    if timing_only:
+        checked_device("cuda:0")
+        automatic = configure_machine_resources(ROOT / ".env.local")
     controls = production_settings(ROOT / ".env.local")
+
+    def budget_check():
+        if time.monotonic() - started >= controls["max_seconds"]:
+            raise TimeoutError("preflight time allowance exhausted")
+
     policy = load_generation_policy(ROOT / ".env.local")
     if output.exists() or not output.parent.is_dir():
         raise ValueError("preflight output must be new with an existing parent")
@@ -360,40 +492,50 @@ def gpu_preflight(output):
     provenance = source_identity()
     output.mkdir()
     retain_sources(output, provenance)
-    report = {"passed": False, "provenance": provenance, "hardware": hardware,
+    report = {"schema": "corrected-timing-check-v1" if timing_only else "corrected-gpu-preflight-v2",
+              "passed": False, "provenance": provenance, "hardware": hardware,
+              "automatic_resources": automatic, "disposable_timing_test": timing_only,
               "controls": controls, "generation_policy": policy.__dict__,
               "resources": detect_resources().as_dict(), "counts": {},
               "scope": "M5/M20 numerical checks and full-size batch updates; no accuracy/sizing campaign"}
     write_json(output / "report.json", report)
-    started = time.monotonic()
     # Use a separate stream from every development/production population.
     for interactions in (5, 20):
-        if time.monotonic() - started >= controls["max_seconds"]:
-            raise TimeoutError("preflight time allowance exhausted")
+        budget_check()
         numerical = preflight(interactions, 424242, 8, device=controls["device"])
+        budget_check()
         solver = TriatomicBatchSolver(GRID, interactions)
         labels = sample_labels(controls["batch_size"], interactions, 424243, "train")
         plan, tuning = tune_execution(solver, *physical_arrays(labels, interactions), policy)
+        budget_check()
         data_config = dict(production_protocol(controls)["shared"], interactions=interactions,
                            seed=424244, train_count=controls["batch_size"],
                            validation_count_per_population=2048, test_count_per_population=2)
         tick = time.perf_counter()
         generate_artifact(output / f"m{interactions}-data", data_config, solver, plan, provenance, checkpoint_rows=4096)
         generation_seconds = time.perf_counter() - tick
+        budget_check()
         artifact = LabeledArtifact(output / f"m{interactions}-data")
         target = np.array(artifact.arrays["train"][1], copy=True)
         torch.manual_seed(424245)
         model = ProductionBandInverse(interactions, np.sqrt(np.mean(target**2, axis=(0, 1)))).to(device)
         forward = DifferentiableTriatomic(GRID, interactions).to(device)
         optimizer = torch.optim.Adam(model.parameters(), lr=0.001, foreach=False)
+        if timing_only and interactions == 5:
+            budget_check()
+            tuning_limit = min(policy.tuning_seconds, controls["max_seconds"] - (time.monotonic() - started))
+            automatic["training_threads"] = tune_training_threads(
+                model, forward, optimizer, target, device, automatic["available_threads"], tuning_limit)
+            controls["torch_threads"] = automatic["training_threads"]["selected_threads"]
+            update_local_settings(ROOT / ".env.local", {"BANDNET_PRODUCTION_TORCH_THREADS": controls["torch_threads"]})
         torch.cuda.reset_peak_memory_stats(device)
         torch.cuda.empty_cache()
         for _ in range(2):
+            budget_check()
             training_step(model, forward, optimizer, target, device)
         durations, losses = [], []
         for _ in range(5):
-            if time.monotonic() - started >= controls["max_seconds"]:
-                raise TimeoutError("preflight time allowance exhausted")
+            budget_check()
             synchronize(device)
             tick = time.perf_counter()
             # Include the same shuffled mmap read and transfer used by production.
@@ -404,22 +546,28 @@ def gpu_preflight(output):
             durations.append(time.perf_counter() - tick)
         training_config = dict(production_protocol(controls)["fits"][0]["training"])
         checkpoint = output / f"m{interactions}.pt"
+        budget_check()
         tick = time.perf_counter()
         payload = production_payload(model, artifact, training_config, provenance, 0, None)
+        payload_prepare_seconds = time.perf_counter() - tick
         _save_checkpoint(checkpoint, payload)
         save_seconds = time.perf_counter() - tick
         tick = time.perf_counter()
-        _save_checkpoint(output / f"m{interactions}-resume-probe.pt",
-                         {"current": model.state_dict(), "optimizer": optimizer.state_dict(), "best": payload})
+        save_resume_checkpoint(output / f"m{interactions}-resume-probe.pt",
+                               {"current": model.state_dict(), "optimizer": optimizer.state_dict(), "best": payload,
+                                "reload_probe": payload["reload_probe"]})
         resume_save_seconds = time.perf_counter() - tick
         tick = time.perf_counter()
         for population in ("validation_dense", "validation_sparse"):
+            budget_check()
             validation, _ = evaluate_population(model, artifact, population, controls["batch_size"], retain_curves=False)
             if validation["invalid_prediction_count"]:
                 raise ArithmeticError("full-validation probe produced invalid designs")
         validation_seconds = time.perf_counter() - tick
         probe = np.array(artifact.arrays["showcase"][1], copy=True)
+        budget_check()
         before = predict(model, probe, controls["batch_size"])
+        tick = time.perf_counter()
         restored, _ = load_model(checkpoint, device=controls["device"])
         np.testing.assert_array_equal(before, predict(restored, probe, controls["batch_size"]))
         cpu_model, _ = load_model(checkpoint)
@@ -428,6 +576,27 @@ def gpu_preflight(output):
         _, scores, failed = evaluate_designs(probe, before, interactions)
         if failed or not np.all(np.isfinite(scores)):
             raise ArithmeticError("GPU checkpoint predictions failed common CPU scoring")
+        reload_check_seconds = time.perf_counter() - tick
+        # Exercise actual serialized Adam continuation on this CUDA stack. These
+        # two verification updates are separate from the five throughput samples.
+        budget_check()
+        if not timing_only:
+            tick = time.perf_counter()
+            resume_state = read_resume_checkpoint(output / f"m{interactions}-resume-probe.pt")
+            resumed = ProductionBandInverse(interactions, payload["input_scale"]).to(device)
+            resumed.load_state_dict(resume_state["current"])
+            resumed_optimizer = torch.optim.Adam(resumed.parameters(), lr=0.001, foreach=False)
+            resumed_optimizer.load_state_dict(resume_state["optimizer"])
+            original_loss = training_step(model, forward, optimizer, target, device)
+            budget_check()
+            resumed_loss = training_step(resumed, forward, resumed_optimizer, target, device)
+            if original_loss != resumed_loss:
+                raise AssertionError("GPU Adam reload changed the next loss")
+            for name, tensor in model.state_dict().items():
+                torch.testing.assert_close(tensor, resumed.state_dict()[name], rtol=0, atol=0)
+            synchronize(device)
+            resume_verification_seconds = time.perf_counter() - tick
+            del resumed, resumed_optimizer, resume_state
         row = {"numerical": numerical, "calibration": tuning,
                "generation_write_seconds": generation_seconds,
                "generated_rows": sum(len(pair[0]) for pair in artifact.arrays.values()),
@@ -437,16 +606,29 @@ def gpu_preflight(output):
                "peak_cuda_allocated_bytes": torch.cuda.max_memory_allocated(device),
                "peak_cuda_reserved_bytes": torch.cuda.max_memory_reserved(device),
                "checkpoint_write_seconds": save_seconds, "checkpoint_sha256": sha256_file(checkpoint),
+               "best_payload_prepare_seconds": payload_prepare_seconds,
+               "reload_and_scoring_check_seconds": reload_check_seconds,
                "resume_checkpoint_write_seconds": resume_save_seconds,
+               "adam_reload_next_update_exact": None if timing_only else True,
+               "resume_verification_updates": 0 if timing_only else 2,
+               "resume_verification_seconds": None if timing_only else resume_verification_seconds,
                "full_validation_4096_seconds": validation_seconds,
                "cuda_reload_exact": True, "cpu_reload_prediction_tolerance": {"rtol": 1e-10, "atol": 1e-10},
                "common_cpu_scoring_passed": True}
+        if timing_only:
+            budget_check()
+            tick = time.perf_counter()
+            compact_evaluation(output / f"m{interactions}-timing-records", model, artifact, "validation_dense",
+                               controls["batch_size"], row["checkpoint_sha256"])
+            row["compact_evaluation_seconds"] = time.perf_counter() - tick
+            row["compact_evaluation_rows"] = len(artifact.arrays["validation_dense"][0])
         report["counts"][str(interactions)] = row
         write_json(output / "report.json", report)
         del model, restored, cpu_model, optimizer, forward, artifact, payload
         gc.collect()
         torch.cuda.empty_cache()
     median = max(row["median_step_seconds"] for row in report["counts"].values())
+    budget_check()
     steps = 5 * ((2500000 + 1023) // 1024) + 16 * 100 * ((100000 + 1023) // 1024)
     report.update(passed=True, elapsed_seconds=time.monotonic() - started,
                   optimizer_steps_in_full_matrix=steps,
@@ -461,46 +643,70 @@ def gpu_preflight(output):
 
 
 def production_run(output, preflight_root, *, resume=False):
+    invocation_start = time.monotonic()
     controls = production_settings(ROOT / ".env.local")
     policy = load_generation_policy(ROOT / ".env.local")
     device = checked_device(controls["device"])
     torch.set_num_threads(controls["torch_threads"])
     torch.use_deterministic_algorithms(True)
-    provenance = source_identity()
-    precheck = json.loads((preflight_root / "report.json").read_text())
+    source = source_identity()
+    provenance = production_provenance(source)
+    precheck_bytes = (preflight_root / "report.json").read_bytes()
+    precheck = json.loads(precheck_bytes)
+    check_preflight_evidence(precheck)
     expected_controls = dict(precheck["controls"], max_seconds=controls["max_seconds"])
-    if (not precheck["passed"] or precheck["provenance"] != provenance
+    if (precheck["provenance"] != source
             or precheck["hardware"] != gpu_identity() or expected_controls != controls
             or precheck["generation_policy"] != policy.__dict__):
         raise ValueError("a successful preflight on this exact source/configuration/GPU stack is required")
     for name, digest in precheck["files"].items():
-        if sha256_file(preflight_root / name) != digest:
+        path = (preflight_root / name).resolve()
+        if not path.is_relative_to(preflight_root.resolve()) or sha256_file(path) != digest:
             raise ValueError("preflight evidence checksum mismatch")
     protocol = production_protocol(controls)
-    protocol.update(provenance=provenance, generation_policy=policy.__dict__,
-                    preflight_report_sha256=sha256_file(preflight_root / "report.json"), hardware=precheck["hardware"])
+    protocol.update(provenance=provenance)
     if resume:
         if json.loads((output / "protocol.json").read_text()) != protocol:
             raise ValueError("resume requires the identical frozen production protocol")
         state = json.loads((output / "progress.json").read_text())
+        validate_execution_history(output, protocol, state["attempts"])
+        for name, digest in provenance["source_sha256"].items():
+            if sha256_file(output / "sources" / name) != digest:
+                raise ValueError("retained production source checksum mismatch")
     else:
         if output.exists() or not output.parent.is_dir():
             raise ValueError("production output must be new with an existing parent")
         if shutil.disk_usage(output.parent).free < 150 * 10**9:
             raise OSError("production requires at least 150 GB free on the persistent volume")
         output.mkdir()
+        (output / "executions").mkdir()
         retain_sources(output, provenance)
         write_json(output / "protocol.json", protocol)
         state = {"status": "running", "fits": {}, "evaluations": {}, "attempts": []}
     for attempt in state["attempts"]:
         if attempt["status"] == "running":
             attempt["status"] = "interrupted_duration_unknown"
+    execution_id = uuid.uuid4().hex
+    archive_path = output / "executions" / f"{execution_id}.json"
+    with archive_path.open("xb") as archive:
+        archive.write(precheck_bytes)
+        archive.flush()
+        os.fsync(archive.fileno())
+    descriptor = os.open(archive_path.parent, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
     attempt = {"resume": resume, "status": "running", "elapsed_seconds": None,
-               "max_seconds": controls["max_seconds"]}
+               "max_seconds": controls["max_seconds"], "execution_id": execution_id,
+               "preflight_report_sha256": hashlib.sha256(precheck_bytes).hexdigest(),
+               "controls": dict(controls), "generation_policy": dict(policy.__dict__),
+               "resources_at_start": detect_resources().as_dict(),
+               "checkpoint_qualifications": {}}
     state["attempts"].append(attempt)
     state["status"] = "running"
     write_json(output / "progress.json", state)
-    started = time.monotonic()
+    started = invocation_start
     deadline = started + controls["max_seconds"]
 
     def budget_check():
@@ -523,10 +729,11 @@ def production_run(output, preflight_root, *, resume=False):
         plan, tuning = tune_execution(solver, *physical_arrays(probe, config["interactions"]), policy)
         calibration_path = output / f"{name}-calibrations.json"
         calibrations = json.loads(calibration_path.read_text()) if calibration_path.exists() else []
-        calibrations.append(tuning)
+        calibrations.append({"execution_id": execution_id, "tuning": tuning})
         write_json(calibration_path, calibrations)
         generate_artifact(path, config, solver, plan, provenance, resume=path.exists(),
-                          after_chunk=lambda name, stop: budget_check(), checkpoint_rows=4096)
+                          after_chunk=lambda name, stop: budget_check(), checkpoint_rows=4096,
+                          execution_id=execution_id)
         return LabeledArtifact(path)
 
     try:
@@ -542,7 +749,8 @@ def production_run(output, preflight_root, *, resume=False):
             artifact = dataset(name, config)
             training_path = output / name
             model, training = train_production(training_path, artifact, fit["training"], provenance,
-                                                resume=training_path.exists(), deadline=deadline)
+                                               execution=controls, execution_id=execution_id,
+                                               resume=training_path.exists(), deadline=deadline)
             state["fits"][name] = {"checkpoint_sha256": training["checkpoint_sha256"],
                                     "dataset_manifest_sha256": sha256_file(artifact.root / "manifest.json")}
             write_json(output / "progress.json", state)
@@ -556,10 +764,14 @@ def production_run(output, preflight_root, *, resume=False):
             checkpoint = output / name / "best.pt"
             if sha256_file(checkpoint) != state["fits"][name]["checkpoint_sha256"]:
                 raise ValueError("completed checkpoint checksum mismatch")
-            model, payload = load_model(checkpoint, device=controls["device"])
+            model, payload = load_model(checkpoint)
             artifact = dataset(name, fit["data"])
             if payload["dataset_manifest_sha256"] != sha256_file(artifact.root / "manifest.json"):
                 raise ValueError("checkpoint dataset mismatch")
+            attempt["checkpoint_qualifications"][name] = qualify_checkpoint_model(
+                model, artifact, payload["reload_probe"], device, gradients=False)
+            write_json(output / "progress.json", state)
+            budget_check()
             evaluations = [(population, artifact, population) for population in ("test_dense", "test_sparse", "adversarial", "showcase")]
             if name.startswith("study-"):
                 evaluations.extend((f"shared_m5_{population}", shared, population) for population in ("test_dense", "test_sparse"))
@@ -568,7 +780,7 @@ def production_run(output, preflight_root, *, resume=False):
                 path = output / name / label
                 summary = compact_evaluation(path, model, targets, population, controls["batch_size"],
                                              state["fits"][name]["checkpoint_sha256"], resume=path.exists(),
-                                             after_chunk=lambda stop: budget_check())
+                                             after_chunk=lambda stop: budget_check(), execution_id=execution_id)
                 state["evaluations"][f"{name}/{label}"] = summary
                 write_json(output / "progress.json", state)
                 if summary["invalid_prediction_count"]:
@@ -594,9 +806,10 @@ def main():
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--sizing", action="store_true", help="historical bounded sizing exercise")
     modes.add_argument("--gpu-preflight", action="store_true", help="required actual-GPU checks and full-batch throughput")
+    modes.add_argument("--timing-check", action="store_true", help="disposable automatic-resource timing test; never a production checkpoint")
     modes.add_argument("--production", action="store_true", help="fixed full-size CUDA matrix; paid launch requires owner approval")
     parser.add_argument("--preflight", type=Path, help="successful GPU preflight artifact required by production")
-    parser.add_argument("--resume", action="store_true", help="explicit production resume with identical source/configuration")
+    parser.add_argument("--resume", action="store_true", help="resume the same experiment on a newly qualified compatible machine")
     args = parser.parse_args()
     if (args.resume or args.preflight is not None) and not args.production:
         parser.error("--resume and --preflight are production-only")
@@ -605,8 +818,8 @@ def main():
             parser.error("--production requires --preflight")
         production_run(args.output, args.preflight, resume=args.resume)
         return
-    if args.gpu_preflight:
-        gpu_preflight(args.output)
+    if args.gpu_preflight or args.timing_check:
+        gpu_preflight(args.output, timing_only=args.timing_check)
         return
     if args.sizing:
         sizing_exercise(args.output)

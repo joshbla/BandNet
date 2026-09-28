@@ -45,6 +45,30 @@ Without PyTorch the corrected learning tests are explicitly skipped.
 
 ## Full Corrected Production Experiment
 
+### Current Task: Disposable Timing Test
+
+The owner's immediate request is a small, automatically resource-tuned timing
+test and a checked estimate. The real experiment starts fresh later, only when
+the owner is ready and approves. The cross-machine continuation work below was
+an assistant over-interpretation; it remains implemented but is not the active
+task. Test weights/data are never reused to start production.
+
+On an approved GPU allocation, use a container-disk software environment/cache
+and a credential-free `.env.local` with the documented controls. The timing mode
+replaces CPU/RAM reserve and thread settings with choices for the actual machine:
+
+```bash
+python corrected_pilot.py --timing-check --output /workspace/artifacts/disposable-timing
+python verify_corrected_pilot.py --timing --run /workspace/artifacts/disposable-timing --report /workspace/artifacts/timing-audit.json
+```
+
+Use the Python executable from the frozen training environment. The first H100
+attempt failed before timing on excessive CUDA eigensolver scratch allocation.
+Evidence was exported and the pod/storage removed. A VRAM-bounded eigensolver
+workaround now passes local value/gradient checks, but still needs actual CUDA
+verification. There is **no valid full-run timing estimate yet**. Current checks:
+68 Python tests and eight independent stop-controller tests pass.
+
 The fixed CUDA runner restores the recorded five-hidden-layer ReLU architecture
 (`5000,2500,5000,2500,5000`) with the adopted corrected contract: 1,500 scaled
 frequency inputs, bounded physical outputs, float64 network/physics, and band
@@ -77,7 +101,9 @@ uv run --frozen --extra training python corrected_pilot.py --gpu-preflight --out
 Preflight checks M5/M20 values, gradients, full-architecture optimizer updates,
 CPU-scored predictions, CUDA/CPU checkpoint reload, resources and native CPU
 thread control. It measures two warmup and five timed updates per endpoint with
-batch size 1,024, full validation and checkpoint-writing overhead. This is not
+batch size 1,024, full validation and checkpoint-writing/integrity-hashing overhead.
+It also verifies serialized Adam continuation with two additional updates per
+endpoint, separately from the throughput samples. This is not
 an architecture or accuracy search. Its training-only projection excludes the
 remaining stages; use its recorded stage timings to form the full-run budget.
 
@@ -90,13 +116,16 @@ uv run --frozen --extra training python verify_corrected_pilot.py --production -
 ```
 
 The second command is for an interrupted run, not a second experiment. It checks
-the frozen source, configuration, machine preflight and artifact identities.
+the frozen scientific source/configuration and artifact identities against a
+successful preflight for the **current** machine. A replacement GPU, runtime,
+region or filesystem path does not change the scientific protocol.
 Training persists Adam state, deterministic row cursor and best-validation
 weights every configured interval and epoch boundary. Uncommitted work may be
 replayed; its unknown duration is not filled in. `MAX_SECONDS` is a cooperative
 per-invocation limit, **not a RunPod billing stop**. An external pod stop deadline
-must be armed for the approved budget. A changed GPU/driver requires renewed
-preflight and an explicit provenance review before resuming that study.
+must be armed for the approved budget. A changed GPU/driver/runtime or operational
+configuration requires a fresh preflight; its successful report is admitted and
+archived automatically during explicit resume.
 
 Final records store predicted parameters, per-band errors and chunk checksums;
 they reference retained target arrays instead of duplicating reconstructed curves.
@@ -106,6 +135,136 @@ figures and manuscript replacements follow that audit. The runner requires
 150 GB initial free space and keeps a 20 GB disk reserve; a 200 GB persistent
 network volume accommodates about 55.55 GB of dataset payload and 39.16 GB of
 retained model/Adam payload plus preflight, temporary checkpoints and software.
+
+### Moving Between Machines Or Regions
+
+There is no A100-only, 80-GB-only or region whitelist in the runner. A compatible
+CUDA GPU must execute the fixed float64 model and batch size and pass the numerical,
+resource and throughput checks. CPU threads, generation reserves/tuning and
+checkpoint interval are execution settings that can be chosen for each machine
+in that checkout's `.env.local`. The architecture, sampling, seeds, learning rate,
+epochs, batch size, precision, source files and lockfile remain fixed.
+
+1. Pause the old writer and preserve the **entire** production directory, including
+   datasets, checkpoints, `protocol.json`, `progress.json`, `sources/`, `executions/`,
+   per-fit histories and partial evaluation records. Copy a quiescent snapshot,
+   not files while another pod is still changing them. Verify the exported copy
+   before deleting old storage. Network volumes are region-bound; cross-region
+   moves require an actual copy through durable storage or the Mac.
+2. Use the same source/lockfile contents on the new machine. The scientific
+   identity is content-based; commit, platform, package/runtime versions and GPU
+   identity are retained separately in execution evidence. Set the new machine's
+   explicit operating limits, then create a **new** preflight output directory.
+   Do not use an old GPU's report or price projection for a different GPU.
+3. Run the first command below for the new qualification. Only after its measured
+   budget is approved, use the second command to continue the copied run:
+
+```bash
+uv run --frozen --extra training python corrected_pilot.py --gpu-preflight --output /workspace/artifacts/replacement-preflight
+uv run --frozen --extra training python corrected_pilot.py --production --resume --preflight /workspace/artifacts/replacement-preflight --output /workspace/artifacts/full-three-band
+```
+
+Resume checks the saved model/Adam/cursor checksum and source/data identity. Before
+updating transferred weights, it checks predictions against a saved training-only
+probe on both CPU and the new device, checks common CPU scores at `rtol=atol=1e-10`,
+and checks finite gradients. Selected models get the same prediction/score check
+before final inference. This establishes numerical agreement, not a promise of
+bit-identical training trajectories across different hardware.
+
+Every production invocation archives its admitted preflight report under
+`executions/` and records its actual controls, reserves and resources. Generation
+chunks, committed optimizer steps, validation selections and evaluation chunks
+carry execution IDs. Completed evaluation records and originating summaries are
+preserved on reopen. The independent audit verifies this lineage, final predictions,
+selection and scores; aggregate floating-point comparisons use the existing
+`1e-12` score tolerance while counts and provenance remain exact.
+
+The archived preflight reports are self-contained historical qualification records.
+The current invocation still verifies every file in its supplied preflight folder;
+keep that complete folder until admission. Copying a production run does not
+require reproducing an old absolute path or retaining a physical GPU. Source
+snapshots remain in the run; disposable preflight models/data need not be copied
+into every production execution archive.
+
+This is the v2 production/checkpoint/evaluation format. There are no real v1
+production runs to migrate; legacy production fixtures/preflights must be rebuilt,
+not silently accepted as qualified. Existing local pilot/sizing evidence remains
+historical. All **65 local Python tests pass**, including a three-machine
+interruption/relocation fixture, saved-state corruption checks and the complete
+preflight flow with a tiny CPU backend. Actual CUDA and cross-GPU qualification
+remain required on rented hardware.
+
+### Initial RunPod Allocation And Independent Shutdown
+
+The initial allocation has an owner-set **900-second maximum**, counted from the
+allocation request, including provisioning, setup, checks, evidence and shutdown.
+Use at most **600 seconds** for the inner production-runner limit and reduce it
+when setup leaves less time. The initial allocation and temporary storage count
+toward the same **$11 total ceiling**. Neither this procedure nor the example
+configuration authorizes paid creation.
+
+`runpod_watchdog.ts` is a stop-only controller running on this Mac, independently
+of Python, SSH and the chat. It uses the documented RunPod v2 API and Node
+22.18 or newer, with no additional packages. Put `RUNPOD_API_KEY` in the scripts
+section at the bottom of local `.env.local`, make that file owner-only, and run:
+
+```bash
+node runpod_watchdog.ts check
+node --test test_runpod_watchdog.ts
+```
+
+`check` authenticates a read and verifies that the prepared Mac public SSH key
+is registered. A read cannot establish stop permission; verify that through the
+approved live allocation. Never upload the controller's local `.env.local` to a
+pod. Build a separate pod configuration containing only the experiment controls.
+
+For a newly approved creation, capture the local request time in epoch
+milliseconds immediately **before** issuing the create request. Immediately
+after creation, preserve a JSON receipt under ignored `artifacts/` containing
+only `podId`, the exact `createdAt` returned by that creation, and
+`allocationRequestedAtMs`. Only this conversation's actual creation response
+establishes permission to control the pod. A name or an existing pod-list entry
+does not. The receipt is operational evidence, not an authorization mechanism.
+
+```bash
+node runpod_watchdog.ts arm artifacts/runpod-check-receipt.json
+```
+
+Do this as the first action after creation, before SSH/setup, and require the
+arming acknowledgement. If receipt binding or arming fails, stop that new pod
+immediately through the MCP. The controller is not protecting the interval
+between the create request and successful arming, so a launch must not be left
+unattended during this handoff. Authentication and local controller checks must
+be complete before requesting a paid allocation.
+
+The detached controller uses macOS `caffeinate -is` to inhibit idle sleep while
+it runs. It sends the stop request at **840 seconds**, leaving 60 seconds for
+provider shutdown, and retries API failures. A monotonic clock prevents wall-clock
+rollback from extending the running deadline. On success or check/setup failure,
+request earlier shutdown:
+
+```bash
+node runpod_watchdog.ts stop artifacts/runpod-check-receipt.json
+```
+
+The controller requires a fresh GET showing `EXITED` or `TERMINATED`, null runtime
+and no remaining stop action before writing `stopped.json`. The real H100 stop
+retained its catalog hourly rate in `cost`, so zero price is not the criterion.
+An accepted POST, missing pod, network error or
+Python exit is not shutdown proof. Evidence lives beside the receipt under
+`watchdog-<podId>/`; independently confirm shutdown with the MCP. The controller
+never deletes a pod or volume. Keep all experiment outputs under the network
+mount and verify exported copies before deleting storage.
+
+This is a local, best-effort controller, not a provider-guaranteed spending cap.
+Mac power loss, loss of connectivity or a provider outage can prevent timely
+shutdown. Keep the Mac powered and online. If shutdown remains unverified at
+900 seconds it logs the missed deadline and continues retrying; it does not
+silently extend training or declare success. Eight simulated controller tests
+pass; local authentication, detached arming, direct SSH and authenticated early
+stop worked on the H100. The corrected lifecycle/runtime verification rule is
+locally tested against the observed provider response. Continue to independently
+verify shutdown and cleanup through the MCP.
 
 ## Batched Three-Band CPU Candidate
 

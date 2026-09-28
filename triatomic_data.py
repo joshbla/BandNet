@@ -175,7 +175,7 @@ def _check_split(root, record, grid_size, width):
 
 
 def generate_artifact(root, config, solver, plan, provenance, *, resume=False,
-                       after_chunk=None, checkpoint_rows=1):
+                       after_chunk=None, checkpoint_rows=1, execution_id=None):
     """Durable prefix checkpoints. Explicit resume rewrites only uncommitted rows.
 
     A crash can leave an unrecorded chunk; its cost is unknown, not reconstructed.
@@ -211,7 +211,11 @@ def generate_artifact(root, config, solver, plan, provenance, *, resume=False,
         state = {"identity": identity, "grid_file_sha256": sha256_file(root / "q_hat.npy"),
                  "complete": False, "splits": {}, "attempts": []}
         write_json(root / "manifest.json", state)
-    attempt = {"resume": resume, "status": "in_progress", "elapsed_seconds": None}
+    for previous in state["attempts"]:
+        if previous["status"] == "in_progress":
+            previous["status"] = "interrupted_duration_unknown"
+    attempt = {"resume": resume, "status": "in_progress", "elapsed_seconds": None,
+               "execution_id": execution_id}
     state["attempts"].append(attempt)
     write_json(root / "manifest.json", state)
     tick = time.perf_counter()
@@ -261,6 +265,7 @@ def generate_artifact(root, config, solver, plan, provenance, *, resume=False,
                 flush_mapping(bands, bands_path)
                 record["chunks"].append({
                     "start": committed, "stop": stop, "sha256": array_hash(bands[committed:stop]),
+                    "execution_id": execution_id,
                     "negative_eigenvalues_clipped": clipped,
                     "generation_write_hash_seconds": time.perf_counter() - chunk_tick,
                 })

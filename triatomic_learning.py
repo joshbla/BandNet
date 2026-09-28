@@ -1,5 +1,6 @@
 """Float64 band-objective learning with explicit CPU or CUDA placement."""
 
+import hashlib
 import json
 import os
 import time
@@ -15,10 +16,40 @@ from triatomic_data import (GRID, array_hash, flush_mapping, label_order, physic
 
 
 MODEL_SCHEMA = "corrected-triatomic-band-model-v1"
-PRODUCTION_SCHEMA = "corrected-triatomic-production-model-v1"
+PRODUCTION_SCHEMA = "corrected-triatomic-production-model-v2"
+TRANSFER_TOLERANCE = {"rtol": 1e-10, "atol": 1e-10}
 PRODUCTION_ARCHITECTURE = [5000, 2500, 5000, 2500, 5000]
 LOSS_NAME = "mean_example_mean_band_target_normalized_squared_frequency_residual"
 METRIC_NAME = "mean_example_mean_band_target_rms_normalized_rmse"
+
+
+def bounded_eigvalsh(matrices, matrices_per_call):
+    """Bound cuSOLVER's per-matrix scratch without changing the training batch.
+
+    CUDA's generic batched solver can reserve about a MiB per tiny complex matrix.
+    Keep calls at a stable size to reuse its scratch; padding is discarded before
+    loss computation and contributes no gradient. CPU callers can use one call.
+    """
+    if type(matrices_per_call) is not int or matrices_per_call < 1:
+        raise ValueError("positive eigensolver call size required")
+    flat = matrices.reshape(-1, 3, 3)
+    if len(flat) <= matrices_per_call:
+        return torch.linalg.eigvalsh(matrices)
+    values = []
+    for start in range(0, len(flat), matrices_per_call):
+        block = flat[start:start + matrices_per_call]
+        count = len(block)
+        if count < matrices_per_call:
+            block = torch.cat((block, block[-1:].expand(matrices_per_call - count, -1, -1)))
+        values.append(torch.linalg.eigvalsh(block)[:count])
+    return torch.cat(values).reshape(matrices.shape[:-1])
+
+
+def cuda_eigen_call_limit(device):
+    # Conservative 2 MiB/matrix scratch allowance and one-eighth of total VRAM.
+    # Stable across calls, including inference/gradient calls with different sizes.
+    budget = max(1, torch.cuda.get_device_properties(device).total_memory // (8 * 2 * 1024**2))
+    return 2 ** (budget.bit_length() - 1)
 
 
 def checked_device(name):
@@ -126,7 +157,10 @@ class DifferentiableTriatomic(nn.Module):
         residual = (dynamic - dynamic.mH).abs().amax(dim=(-2, -1))
         if not torch.isfinite(dynamic).all() or torch.any(residual > tolerance):
             raise ArithmeticError("nonfinite or non-Hermitian differentiable matrix")
-        eigenvalues = torch.linalg.eigvalsh(dynamic)
+        if dynamic.device.type == "cuda":
+            eigenvalues = bounded_eigvalsh(dynamic, cuda_eigen_call_limit(dynamic.device))
+        else:
+            eigenvalues = torch.linalg.eigvalsh(dynamic)
         # The adopted positive-k1 domain and q>=.001 have strictly positive
         # eigenvalues. A zero would make sqrt's derivative singular: fail it.
         if not torch.isfinite(eigenvalues).all() or torch.any(eigenvalues <= 0):
@@ -398,7 +432,99 @@ def training_step(model, forward, optimizer, target, device):
     return loss.item()
 
 
-def production_payload(model, artifact, config, provenance, epoch, validation):
+def checkpoint_probe(model, artifact):
+    """Training-only witnesses saved on the originating machine, never final tests."""
+    rows = list(range(min(8, len(artifact.arrays["train"][0]))))
+    targets = np.array(artifact.arrays["train"][1][rows], copy=True)
+    predictions = predict(model, targets, len(rows))
+    _, scores, failures = evaluate_designs(targets, predictions, model.interactions)
+    if failures:
+        raise ArithmeticError("invalid checkpoint qualification probe")
+    return {"rows": rows, "predictions": torch.from_numpy(predictions),
+            "per_band_errors": torch.from_numpy(scores)}
+
+
+def qualify_checkpoint_model(model, artifact, probe, device, *, gradients):
+    """Verify the actual transferred weights before any new update or final scoring."""
+    rows = probe["rows"]
+    if rows != list(range(min(8, len(artifact.arrays["train"][0])))):
+        raise ValueError("checkpoint qualification must use the fixed training-only rows")
+    targets = np.array(artifact.arrays["train"][1][rows], copy=True)
+    expected = probe["predictions"].cpu().numpy()
+    expected_scores = probe["per_band_errors"].cpu().numpy()
+    started = time.perf_counter()
+    model.to("cpu")
+    cpu = predict(model, targets, len(rows))
+    np.testing.assert_allclose(cpu, expected, **TRANSFER_TOLERANCE)
+    model.to(device)
+    actual = predict(model, targets, len(rows))
+    np.testing.assert_allclose(actual, expected, **TRANSFER_TOLERANCE)
+    _, scores, failures = evaluate_designs(targets, actual, model.interactions)
+    if failures:
+        raise ArithmeticError("transferred checkpoint failed common CPU scoring")
+    np.testing.assert_allclose(scores, expected_scores, **TRANSFER_TOLERANCE)
+    if gradients:
+        model.zero_grad(set_to_none=True)
+        tensor = torch.tensor(targets, dtype=torch.float64, device=device)
+        loss = band_loss(tensor, DifferentiableTriatomic(artifact.grid, model.interactions).to(device)(model(tensor)))
+        loss.backward()
+        if any(p.grad is None or not torch.isfinite(p.grad).all() for p in model.parameters()):
+            raise ArithmeticError("transferred checkpoint has nonfinite gradients")
+        model.zero_grad(set_to_none=True)
+    return {"passed": True, "population": "train", "rows": rows,
+            "maximum_cpu_prediction_difference": float(np.max(np.abs(cpu - expected))),
+            "maximum_device_prediction_difference": float(np.max(np.abs(actual - expected))),
+            "maximum_common_score_difference": float(np.max(np.abs(scores - expected_scores))),
+            "tolerance": dict(TRANSFER_TOLERANCE), "finite_gradients_checked": gradients,
+            "elapsed_seconds": time.perf_counter() - started}
+
+
+def resume_state_hash(state):
+    """Content checksum independent of torch's serialization and tensor device."""
+    digest = hashlib.sha256()
+
+    def visit(value):
+        if isinstance(value, torch.Tensor):
+            array = value.detach().cpu().contiguous().numpy()
+            digest.update(json.dumps(["tensor", array.dtype.str, list(array.shape)]).encode())
+            digest.update(memoryview(array).cast("B"))
+        elif isinstance(value, dict):
+            digest.update(b"dict[")
+            for key in sorted(value, key=lambda item: (type(item).__name__, str(item))):
+                visit(key)
+                visit(value[key])
+            digest.update(b"]")
+        elif isinstance(value, (list, tuple)):
+            digest.update(type(value).__name__.encode() + b"[")
+            for item in value:
+                visit(item)
+            digest.update(b"]")
+        else:
+            digest.update(json.dumps([type(value).__name__, value], allow_nan=False).encode())
+
+    visit({key: value for key, value in state.items() if key != "integrity_sha256"})
+    return digest.hexdigest()
+
+
+def save_resume_checkpoint(path, state):
+    # Checksum and payload are committed together by the atomic checkpoint writer.
+    state["schema"] = "corrected-production-resume-v2"
+    state["integrity_sha256"] = resume_state_hash(state)
+    _save_checkpoint(path, state)
+
+
+def read_resume_checkpoint(path):
+    state = torch.load(path, map_location="cpu", weights_only=True)
+    if "schema" not in state or state["schema"] != "corrected-production-resume-v2":
+        raise ValueError("unsupported resumable checkpoint; portable v2 checkpoint required")
+    if "integrity_sha256" not in state or state["integrity_sha256"] != resume_state_hash(state):
+        raise ValueError("resumable checkpoint integrity mismatch")
+    if any(value.dtype != torch.float64 or not torch.isfinite(value).all() for value in state["current"].values()):
+        raise ValueError("resumable checkpoint requires finite float64 weights")
+    return state
+
+
+def production_payload(model, artifact, config, provenance, epoch, validation, *, execution_id=None):
     return {
         "schema": PRODUCTION_SCHEMA,
         "state_dict": {name: tensor.detach().cpu().clone() for name, tensor in model.state_dict().items()},
@@ -409,10 +535,11 @@ def production_payload(model, artifact, config, provenance, epoch, validation):
         "validation_primary": validation, "training_configuration": config,
         "dataset_manifest_sha256": sha256_file(artifact.root / "manifest.json"),
         "provenance": provenance,
+        "execution_id": execution_id, "reload_probe": checkpoint_probe(model, artifact),
     }
 
 
-def train_production(root, artifact, config, provenance, *, resume=False,
+def train_production(root, artifact, config, provenance, *, execution, execution_id, resume=False,
                      after_checkpoint=None, deadline=None):
     """Resume Adam and the deterministic row cursor, never select on final tests.
 
@@ -421,32 +548,42 @@ def train_production(root, artifact, config, provenance, *, resume=False,
     replayed; their elapsed time is unknown and excluded from committed timing.
     """
     root = Path(root)
-    device = checked_device(config["device"])
+    device = checked_device(execution["device"])
     if config["architecture"] != "original-five-relu-corrected-io-v1":
         raise ValueError("explicit production architecture required")
-    for name in ("epochs", "batch_size", "torch_threads", "checkpoint_steps"):
+    for name in ("epochs", "batch_size"):
         if type(config[name]) is not int or config[name] < 1:
             raise ValueError(f"positive production {name} required")
-    torch.set_num_threads(config["torch_threads"])
+    for name in ("torch_threads", "checkpoint_steps"):
+        if type(execution[name]) is not int or execution[name] < 1:
+            raise ValueError(f"positive execution {name} required")
+    if execution["batch_size"] != config["batch_size"]:
+        raise ValueError("execution cannot change the scientific batch size")
+    torch.set_num_threads(execution["torch_threads"])
     torch.use_deterministic_algorithms(True)
     torch.manual_seed(config["seed"])
     identity = {"configuration": config, "provenance": provenance,
                 "dataset_manifest_sha256": sha256_file(artifact.root / "manifest.json")}
     if resume:
-        state = torch.load(root / "latest.pt", map_location="cpu", weights_only=True)
+        state = read_resume_checkpoint(root / "latest.pt")
         if state["identity"] != identity:
             raise ValueError("training resume requires identical data, source and configuration")
-        model = ProductionBandInverse(artifact.interactions, state["input_scale"]).to(device)
+        model = ProductionBandInverse(artifact.interactions, state["input_scale"])
         model.load_state_dict(state["current"])
+        qualification = qualify_checkpoint_model(model, artifact, state["reload_probe"], device, gradients=True)
     else:
         root.mkdir()
         model = ProductionBandInverse(artifact.interactions, training_scales(artifact, config["batch_size"])).to(device)
         state = {"identity": identity, "input_scale": model.input_scale.tolist(), "epoch": 0,
                  "next_row": 0, "loss_sum": 0.0, "epoch_training_seconds": 0.0,
-                 "steps": 0, "history": [], "best": None}
+                 "steps": 0, "steps_by_execution": {}, "history": [], "best": None}
+        qualification = None
     optimizer = torch.optim.Adam(model.parameters(), lr=config["learning_rate"], foreach=False)
     if resume:
         optimizer.load_state_dict(state["optimizer"])
+        if any(not torch.isfinite(value).all() for values in optimizer.state.values()
+               for value in values.values() if isinstance(value, torch.Tensor)):
+            raise ValueError("nonfinite saved optimizer state")
     forward = DifferentiableTriatomic(artifact.grid, artifact.interactions).to(device)
     batch_size = config["batch_size"]
 
@@ -454,7 +591,9 @@ def train_production(root, artifact, config, provenance, *, resume=False,
         synchronize(device)
         state["current"] = model.state_dict()
         state["optimizer"] = optimizer.state_dict()
-        _save_checkpoint(root / "latest.pt", state)
+        state["reload_probe"] = checkpoint_probe(model, artifact)
+        state["execution_id"] = execution_id
+        save_resume_checkpoint(root / "latest.pt", state)
         if after_checkpoint is not None:
             after_checkpoint(state["epoch"], state["next_row"])
 
@@ -466,7 +605,9 @@ def train_production(root, artifact, config, provenance, *, resume=False,
         if attempt["status"] == "running":
             attempt["status"] = "interrupted_duration_unknown"
     attempt = {"resume": resume, "status": "running", "elapsed_seconds": None,
-               "start_epoch": state["epoch"], "start_row": state["next_row"]}
+               "start_epoch": state["epoch"], "start_row": state["next_row"],
+               "execution_id": execution_id, "execution": dict(execution),
+               "checkpoint_qualification": qualification}
     attempts.append(attempt)
     write_json(attempts_path, attempts)
     attempt_start = time.perf_counter()
@@ -491,7 +632,10 @@ def train_production(root, artifact, config, provenance, *, resume=False,
                     state["loss_sum"] += loss * len(rows)
                     state["next_row"] = start + len(rows)
                     state["steps"] += 1
-                    if state["steps"] % config["checkpoint_steps"] == 0:
+                    if execution_id not in state["steps_by_execution"]:
+                        state["steps_by_execution"][execution_id] = 0
+                    state["steps_by_execution"][execution_id] += 1
+                    if state["steps"] % execution["checkpoint_steps"] == 0:
                         checkpoint()
             dense, _ = evaluate_population(model, artifact, "validation_dense", batch_size, retain_curves=False)
             sparse, _ = evaluate_population(model, artifact, "validation_sparse", batch_size, retain_curves=False)
@@ -500,11 +644,13 @@ def train_production(root, artifact, config, provenance, *, resume=False,
                 raise ArithmeticError("invalid production validation predictions")
             score = (dense["primary"] * dense["count"] + sparse["primary"] * sparse["count"]) / (dense["count"] + sparse["count"])
             state["history"].append({"epoch": epoch, "validation_primary": score,
+                                     "execution_id": execution_id,
                                      "training_loss": state["loss_sum"] / state["next_row"] if epoch else None,
                                      "training_seconds": state["epoch_training_seconds"],
                                      "validation_dense": dense, "validation_sparse": sparse})
             if state["best"] is None or score < state["best"]["validation_primary"]:
-                state["best"] = production_payload(model, artifact, config, provenance, epoch, score)
+                state["best"] = production_payload(model, artifact, config, provenance, epoch, score,
+                                                   execution_id=execution_id)
             state.update(epoch=epoch + 1, next_row=0, loss_sum=0.0, epoch_training_seconds=0.0)
             checkpoint()
             write_json(root / "history.json", state["history"])
@@ -512,6 +658,7 @@ def train_production(root, artifact, config, provenance, *, resume=False,
         model.load_state_dict(state["best"]["state_dict"])
         model.eval()
         report = {"configuration": config, "best_epoch": state["best"]["epoch"],
+                  "steps_by_execution": state["steps_by_execution"],
                   "best_validation_primary": state["best"]["validation_primary"],
                   "training_seconds_excluding_validation": sum(row["training_seconds"] for row in state["history"]),
                   "history": state["history"], "checkpoint_sha256": sha256_file(root / "best.pt"),
@@ -529,15 +676,15 @@ def train_production(root, artifact, config, provenance, *, resume=False,
 
 
 def compact_evaluation(root, model, artifact, population, batch_size, checkpoint_sha256,
-                       *, resume=False, after_chunk=None):
+                       *, resume=False, after_chunk=None, execution_id=None):
     """Retain only parameters/scores; targets are immutable artifact references."""
     root = Path(root)
     count = len(artifact.arrays[population][0])
-    identity = {"schema": "corrected-compact-evaluation-v1", "count": count,
+    identity = {"schema": "corrected-compact-evaluation-v2", "count": count,
                 "target_manifest_sha256": sha256_file(artifact.root / "manifest.json"),
                 "population": population, "model_interactions": model.interactions,
                 "checkpoint_sha256": checkpoint_sha256, "batch_size": batch_size,
-                "inference_device": str(model.input_scale.device), "scoring_device": "cpu",
+                "scoring_device": "cpu",
                 "metric": METRIC_NAME}
     if resume:
         state = json.loads((root / "manifest.json").read_text())
@@ -569,6 +716,12 @@ def compact_evaluation(root, model, artifact, population, batch_size, checkpoint
         end = chunk["stop"]
     if end != state["completed_rows"]:
         raise ValueError("evaluation cursor mismatch")
+    if state["complete"]:
+        if end != count:
+            raise ValueError("complete evaluation is truncated")
+        # Preserve the originating machine's measured summaries. The independent
+        # audit rechecks their numerical agreement on the current machine.
+        return json.loads((root / "scores.json").read_text())
     for start in range(end, count, batch_size):
         stop = min(start + batch_size, count)
         tick = time.perf_counter()
@@ -581,6 +734,7 @@ def compact_evaluation(root, model, artifact, population, batch_size, checkpoint
             flush_mapping(array, root / f"{name}.npy")
         state["failures"].extend({"row": start + item["row"], "reason": item["reason"]} for item in failures)
         state["chunks"].append({"start": start, "stop": stop,
+                                "execution_id": execution_id, "inference_device": str(model.input_scale.device),
                                 "sha256": {name: array_hash(array[start:stop]) for name, array in arrays.items()},
                                 "inference_reconstruction_write_seconds": time.perf_counter() - tick})
         state["completed_rows"] = stop
