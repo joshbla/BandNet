@@ -9,7 +9,7 @@ import numpy as np
 import torch
 
 from corrected_pilot import ROOT, settings, production_settings, production_protocol, validate_execution_history, check_learning_evidence
-from triatomic_data import (LabeledArtifact, array_hash, sha256_file, write_json,
+from triatomic_data import (GRID, LabeledArtifact, array_hash, sha256_file, write_json,
                             adversarial_labels, showcase_labels, physical_arrays)
 from triatomic_genuine_formula import triatomic_frequencies
 from triatomic_learning import band_errors, evaluate_designs, evaluate_population, load_model, predict, summarize_errors
@@ -173,7 +173,108 @@ def timing_workload(checkpoint_steps, checkpoint_schedule):
     return work
 
 
-def timing_projection(report, hash_bytes_per_second):
+def timing_projection_all_counts(report, hash_bytes_per_second):
+    if set(report["counts"]) != {str(k) for k in range(5, 21)}:
+        raise ValueError("timing requires measured M5..M20 rates without interpolation")
+    if report["checkpoint_schedule"] != "initial-periodic-terminal-v1":
+        raise ValueError("new timing schema requires the lean checkpoint schedule")
+    io = report["disk_read"]
+    if (io["rows"] < 1 or io["bytes"] != io["rows"] * 1500 * 8
+            or not np.isfinite(io["seconds"]) or io["seconds"] <= 0
+            or io["rows_per_second"] != io["rows"] / io["seconds"]):
+        raise ValueError("invalid measured disk-read rate")
+    if not np.isfinite(hash_bytes_per_second) or hash_bytes_per_second <= 0:
+        raise ValueError("positive measured checksum rate required")
+    stages = {}
+    fits = []
+
+    def add(name, seconds, upper=None):
+        if not np.isfinite(seconds) or seconds <= 0:
+            raise ValueError(f"missing positive measurements for {name}")
+        if upper is None:
+            upper = seconds
+        if not np.isfinite(upper) or upper < seconds:
+            raise ValueError(f"invalid upper measurement for {name}")
+        if name not in stages:
+            stages[name] = {"lower_seconds": 0., "upper_seconds": 0.}
+        stages[name]["lower_seconds"] += seconds
+        stages[name]["upper_seconds"] += upper
+
+    work = timing_workload(report["controls"]["checkpoint_steps"], report["checkpoint_schedule"])
+    for index, (k, train, epochs, test) in enumerate([(5, 2500000, 5, 125000),
+                                                   *[(k, 100000, 100, 5000) for k in range(5, 21)]]):
+        row = report["counts"][str(k)]
+        updates = epochs * ((train + 1023) // 1024)
+        extras = len(adversarial_labels(k)) + len(showcase_labels(k))
+        generated = train + 4096 + 2 * test + extras
+        records = 2 * test + extras + (20000 if index else 0)
+        samples = np.asarray(row["transfer_and_mmap_inclusive_step_seconds"], dtype=float)
+        if not len(samples) or not np.all(np.isfinite(samples)) or np.any(samples <= 0):
+            raise ValueError("invalid measured per-count update rate")
+        training = float(np.median(samples)) * updates
+        reads = train * epochs / io["rows_per_second"]
+        fits.append({"name": "main-m5" if index == 0 else f"study-m{k}",
+                     "interactions": k, "optimizer_updates": updates,
+                     "training_seconds": training, "disk_read_seconds": reads})
+        add("training_updates", training)
+        add("full_dataset_shuffled_reads", reads)
+        add("data_generation_and_writing", row["generation_write_seconds"] / row["generated_rows"] * generated)
+        if k in (5, 20):
+            add("generation_calibration", row["calibration"]["elapsed_seconds"])
+        else:
+            if row["calibration"]["reused_plan_from_interactions"] != 5:
+                raise ValueError("intermediate counts must record the reused M5 generation plan")
+            add("generation_calibration", max(report["counts"][str(e)]["calibration"]["elapsed_seconds"] for e in (5, 20)))
+        add("training_validation", row["full_validation_4096_seconds"] * (epochs + 1))
+        add("periodic_checkpoint_writes", row["resume_checkpoint_write_seconds"] *
+            (2 + updates // report["controls"]["checkpoint_steps"]))
+        add("selected_model_writes", row["checkpoint_write_seconds"])
+        add("best_weight_copies", row["best_payload_prepare_seconds"], row["best_payload_prepare_seconds"] * (epochs + 1))
+        record_rate = row["compact_evaluation_seconds"] / row["compact_evaluation_rows"]
+        add("final_inference_scoring_writing", record_rate * records)
+        add("independent_audit_inference_proxy", record_rate * records)
+        add("independent_audit_validation", row["full_validation_4096_seconds"])
+    # Shared targets and model reload checks are measured at their actual endpoint.
+    m5 = report["counts"]["5"]
+    shared = 32 + 4 + 20000 + len(adversarial_labels(5)) + len(showcase_labels(5))
+    add("data_generation_and_writing", m5["generation_write_seconds"] / m5["generated_rows"] * shared)
+    add("generation_calibration", m5["calibration"]["elapsed_seconds"])
+    reloads = [report["counts"][str(k)]["reload_and_scoring_check_seconds"] for k in (5, 20)]
+    add("model_reload_checks", min(reloads) * 34, max(reloads) * 34)
+    add("dataset_integrity_scans", 3 * work["generated_payload_bytes"] / hash_bytes_per_second)
+    lower = sum(row["lower_seconds"] for row in stages.values())
+    upper = sum(row["upper_seconds"] for row in stages.values())
+    return {"checkpoint_schedule": report["checkpoint_schedule"], "workload": work, "fits": fits,
+            "stages": stages, "lower_seconds": lower, "upper_seconds": upper,
+            "planning_seconds_with_25_percent_margin": upper * 1.25,
+            "range_meaning": "measured per-count rates; best-selection and endpoint reload brackets, not a confidence interval",
+            "limitations": ["cache eviction is advisory; disk reads may have been page cached",
+                            "M5 shuffled-read bandwidth applies to identical 1500-feature study rows",
+                            "full shuffled reads added conservatively to cached-read-inclusive updates; some I/O double counting",
+                            "checksum bandwidth measured on small evidence, not cold full datasets",
+                            "independent audit inference uses write-inclusive evaluation as a proxy",
+                            "provisioning, installation and export are additional",
+                            "25 percent planning margin is an explicit assumption"]}
+
+
+def timing_projection(report, hash_bytes_per_second, hourly_price=None):
+    result = timing_projection_seconds(report, hash_bytes_per_second)
+    result["lower_hours"] = result["lower_seconds"] / 3600
+    result["upper_hours"] = result["upper_seconds"] / 3600
+    result["planning_hours_with_25_percent_margin"] = result["planning_seconds_with_25_percent_margin"] / 3600
+    if hourly_price is not None:
+        if not np.isfinite(hourly_price) or hourly_price <= 0:
+            raise ValueError("positive input hourly price required")
+        result["hourly_price"] = hourly_price
+        result["lower_cost"] = result["lower_hours"] * hourly_price
+        result["upper_cost"] = result["upper_hours"] * hourly_price
+        result["planning_cost_with_25_percent_margin"] = result["planning_hours_with_25_percent_margin"] * hourly_price
+    return result
+
+
+def timing_projection_seconds(report, hash_bytes_per_second):
+    if report["schema"] == "corrected-timing-check-v3":
+        return timing_projection_all_counts(report, hash_bytes_per_second)
     if report["schema"] == "corrected-timing-check-v1":
         checkpoint_schedule = "initial-periodic-epoch-v1"
         if "checkpoint_schedule" in report:
@@ -222,17 +323,87 @@ def timing_projection(report, hash_bytes_per_second):
                             "25 percent planning margin is an explicit assumption, not measured uncertainty"]}
 
 
-def verify_timing(root):
+def verify_timing_small(root, report, hash_rate, hourly_price):
+    if (root / "report.sha256").read_text().strip() != sha256_file(root / "report.json"):
+        raise ValueError("timing report checksum mismatch")
+    required = {f"sources/{name}" for name in report["provenance"]["source_sha256"]}
+    checked = 0
+    for k in range(5, 21):
+        row = report["counts"][str(k)]
+        measured = 5 if k in (5, 20) else 3
+        seconds = np.asarray(row["transfer_and_mmap_inclusive_step_seconds"])
+        if (seconds.shape != (measured,) or not np.all(np.isfinite(seconds)) or np.any(seconds <= 0)
+                or row["median_step_seconds"] != float(np.median(seconds))
+                or row["warmup_updates"] != 2 or row["measured_updates"] != measured
+                or row["batch_size"] != 1024 or row["resume_verification_updates"] != 0
+                or row["common_cpu_scoring_passed"] is not True):
+            raise ValueError("invalid per-count timing evidence")
+        expected_rows = 1024 + 4096 + 4 + len(adversarial_labels(k)) + len(showcase_labels(k))
+        if row["generated_rows"] != expected_rows or row["compact_evaluation_rows"] != 2048:
+            raise ValueError("timing row counts differ from the measured workload")
+        config = row["training_configuration"]
+        if (config["learning_rate"] != .0001 or config["seed"] != 424245
+                or config["updates"] != measured + 2 or config["batch_size"] != 1024 or "epochs" in config):
+            raise ValueError("timing training configuration mismatch")
+        if k in (5, 20):
+            if (row["numerical"]["interior_gradcheck"] is not True
+                    or row["numerical"]["finite_boundary_and_repeated_band_gradients"] is not True
+                    or row["cuda_reload_exact"] is not True
+                    or row["cpu_reload_prediction_tolerance"] != {"rtol": 1e-10, "atol": 1e-10}):
+                raise ValueError("missing endpoint numerical checks")
+        directory = root / f"m{k}-timing-records"
+        for name in ("manifest.json", "scores.json", "predictions.npy", "per_band_errors.npy", "sample_targets.npy"):
+            required.add(f"m{k}-timing-records/{name}")
+        manifest = json.loads((directory / "manifest.json").read_text())
+        if (manifest["complete"] is not True or manifest["completed_rows"] != 2048
+                or manifest["identity"]["checkpoint_sha256"] != row["checkpoint_sha256"]
+                or manifest["failures"]):
+            raise ValueError("incomplete small timing records")
+        predictions = np.load(directory / "predictions.npy", mmap_mode="r")
+        scores = np.load(directory / "per_band_errors.npy", mmap_mode="r")
+        targets = np.load(directory / "sample_targets.npy")
+        if (predictions.shape != (2048, k + 1) or scores.shape != (2048, 3)
+                or targets.shape != (8, 500, 3) or not np.all(np.isfinite(predictions))
+                or not np.all(np.isfinite(scores)) or not np.all(np.isfinite(targets))):
+            raise ValueError("invalid small timing arrays")
+        indices = np.linspace(0, 2047, 8, dtype=int)
+        masses, springs = physical_arrays(np.asarray(predictions[indices]), k)
+        independent = np.stack([triatomic_frequencies(m, s, GRID) for m, s in zip(masses, springs)])
+        np.testing.assert_allclose(band_errors(targets, independent), scores[indices], rtol=1e-10, atol=1e-10)
+        checked += len(indices)
+    if not required.issubset(report["files"]):
+        raise ValueError("timing manifest omits required evidence checksums")
+    io = report["disk_read"]
+    if (io["requested_rows"] != report["timing_policy"]["io_target_rows"] or io["rows"] > io["requested_rows"]
+            or io["reduced_for_budget"] != (io["rows"] != io["requested_rows"])
+            or io["cache"]["may_be_page_cached"] is not True
+            or report["timing_policy"]["recovery_saves"] != "measured every count, no interpolation"):
+        raise ValueError("inconsistent I/O or recovery measurement scope")
+    projection = timing_projection(report, hash_rate, hourly_price)
+    if report["optimizer_steps_in_full_matrix"] != projection["workload"]["optimizer_updates"]:
+        raise ValueError("full-study update count mismatch")
+    return {"passed": True, "report_sha256": sha256_file(root / "report.json"),
+            "auditor_sha256": sha256_file(Path(__file__)), "checked_reference_scores_on_cpu": checked,
+            "raw_timings_and_resource_selection_verified": True, "artifact_checksums_verified": True,
+            "observed_checksum_bytes_per_second": hash_rate, "estimate": projection,
+            "verification_scope": "small evidence: sampled independent reference scores, not checkpoint prediction reexecution or bulk data audit",
+            "production_start": "fresh initialization and fresh production data after owner approval; never resume this test"}
+
+
+def verify_timing(root, hourly_price=None):
     """Check raw evidence and independently derive a full-run estimate on CPU."""
     root = Path(root)
     report = json.loads((root / "report.json").read_text())
-    if report["schema"] not in ("corrected-timing-check-v1", "corrected-timing-check-v2") or report["passed"] is not True:
+    if report["schema"] not in ("corrected-timing-check-v1", "corrected-timing-check-v2", "corrected-timing-check-v3") or report["passed"] is not True:
         raise ValueError("a completed disposable timing check is required")
-    if report["controls"]["batch_size"] != 1024 or set(report["counts"]) != {"5", "20"}:
+    new = report["schema"] == "corrected-timing-check-v3"
+    expected_counts = {str(k) for k in range(5, 21)} if new else {"5", "20"}
+    if report["controls"]["batch_size"] != 1024 or set(report["counts"]) != expected_counts:
         raise ValueError("timing must measure the fixed batch size and both endpoints")
-    if report["schema"] == "corrected-timing-check-v2":
-        if report["probe_training"] != {"learning_rate": .0001, "seed": 424245,
-                                        "updates": 7, "candidate_only": True}:
+    if report["schema"] in ("corrected-timing-check-v2", "corrected-timing-check-v3"):
+        expected_probe = {"learning_rate": .0001, "seed": 424245, "updates": 7}
+        expected_probe.update({"production_rate": True} if new else {"candidate_only": True})
+        if report["probe_training"] != expected_probe:
             raise ValueError("timing must identify the approved single-rate candidate")
         if (report["checkpoint_schedule"] != "initial-periodic-terminal-v1"
                 or report["numerical_timing_passed"] is not True or report["learning_health_passed"] is not True):
@@ -243,6 +414,8 @@ def verify_timing(root):
     tick = time.perf_counter()
     for name, digest in report["files"].items():
         path = (root / name).resolve()
+        if new and Path(name).parts[0] == "bulk":
+            raise ValueError("exported timing evidence must exclude bulk data")
         if not path.is_relative_to(root.resolve()) or sha256_file(path) != digest:
             raise ValueError("timing artifact checksum mismatch")
         checked_bytes += path.stat().st_size
@@ -258,6 +431,8 @@ def verify_timing(root):
     if winner["threads"] != tuning["selected_threads"] or report["controls"]["torch_threads"] != winner["threads"]:
         raise ValueError("timing did not use the fastest measured thread setting")
     torch.set_num_threads(report["controls"]["torch_threads"])
+    if new:
+        return verify_timing_small(root, report, hash_rate, hourly_price)
     checked = 0
     for k in (5, 20):
         row = report["counts"][str(k)]
@@ -294,7 +469,7 @@ def verify_timing(root):
         np.testing.assert_allclose(band_errors(target, independent), scores[indices], rtol=1e-10, atol=1e-10)
         checked += len(indices)
         del model, artifact
-    projection = timing_projection(report, hash_rate)
+    projection = timing_projection(report, hash_rate, hourly_price)
     if report["optimizer_steps_in_full_matrix"] != projection["workload"]["optimizer_updates"]:
         raise ValueError("full-study update count mismatch")
     return {"passed": True, "report_sha256": sha256_file(root / "report.json"),
@@ -465,11 +640,12 @@ def main():
     modes.add_argument("--sizing", action="store_true")
     modes.add_argument("--production", action="store_true")
     modes.add_argument("--timing", action="store_true")
+    parser.add_argument("--hourly-price", type=float, help="explicit allocation price for timing cost projection")
     args = parser.parse_args()
     if args.report.exists() or not args.report.parent.is_dir():
         raise ValueError("audit report must be new in an existing directory")
     if args.timing:
-        write_json(args.report, verify_timing(args.run))
+        write_json(args.report, verify_timing(args.run, args.hourly_price))
         return
     if args.production:
         config = production_settings(ROOT / ".env.local")

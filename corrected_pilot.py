@@ -1,6 +1,7 @@
 """Corrected pilot and fixed production execution. Controls come from .env.local."""
 
 import argparse
+import dataclasses
 import gc
 import hashlib
 import json
@@ -24,7 +25,7 @@ from triatomic_batched import TriatomicBatchSolver
 from triatomic_data import (GRID, POPULATIONS, SHOWCASE_IDS, LabeledArtifact, adversarial_labels,
                             array_hash, generate_artifact, label_order, physical_arrays,
                             sample_labels, save_array, sha256_file, showcase_labels, write_json)
-from triatomic_execution import tune_execution
+from triatomic_execution import tune_execution, working_bytes
 from triatomic_genuine_formula import triatomic_frequencies
 from triatomic_learning import (BandInverse, ProductionBandInverse, DifferentiableTriatomic, band_loss,
                                 checked_device, compact_evaluation, load_model, production_payload,
@@ -585,7 +586,7 @@ def bounded_learning_diagnostic(output):
 def production_protocol(controls):
     """A fixed 17-fit experiment, with fresh named streams and no search loop."""
     train = {"architecture": "original-five-relu-corrected-io-v1",
-             "batch_size": controls["batch_size"], "learning_rate": 0.001, "seed": 271829}
+             "batch_size": controls["batch_size"], "learning_rate": 0.0001, "seed": 271829}
     base = {"sampling": "half-dense-half-independent-p05-zero-mask-v1",
             "mass_bounds": [0.1, 10], "spring_bounds": [0, 10],
             "validation_count_per_population": 2048}
@@ -595,13 +596,13 @@ def production_protocol(controls):
     fits.extend({"name": f"study-m{k}", "data": dict(base, interactions=k, seed=314159,
                  train_count=100000, test_count_per_population=5000),
                  "training": dict(train, epochs=100, seed=314160)} for k in range(5, 21))
-    return {"schema": "corrected-full-three-band-v2", "fits": fits,
+    return {"schema": "corrected-full-three-band-v3", "fits": fits,
             "shared": dict(base, interactions=5, seed=161803, train_count=32,
                            validation_count_per_population=2, test_count_per_population=10000),
             "shared_use": "only test_dense/test_sparse form the common 20000-target M5 population; auxiliary schema rows unused",
             "selection": "minimum pooled dense/sparse validation primary, including initialization; final tests after all fits",
             "precision": "float64 network/data/metrics and complex128 physics",
-            "optimizer": "adopted corrected Adam 0.001, no scheduler, no label penalty",
+            "optimizer": "adopted corrected Adam 0.0001, no scheduler, no label penalty",
             "input": "1500 frequency features with training-only band RMS scales; no repeated q column",
             "output": "adopted bounded sigmoid ratios m2,m3,k2..kM; fixed m1=k1=1",
             "seed_policy": "single fixed optimizer seed per family; independent main/study/shared data namespaces; no search"}
@@ -620,12 +621,15 @@ def production_provenance(source):
 
 
 def check_preflight_evidence(report, *, historical=False):
-    allowed = ("corrected-gpu-preflight-v2", "corrected-gpu-preflight-v3") if historical else ("corrected-gpu-preflight-v3",)
+    allowed = ("corrected-gpu-preflight-v2", "corrected-gpu-preflight-v3", "corrected-gpu-preflight-v4") if historical else ("corrected-gpu-preflight-v4",)
     if "schema" not in report or report["schema"] not in allowed or report["passed"] is not True:
         raise ValueError("successful portable GPU preflight required")
-    if report["schema"] == "corrected-gpu-preflight-v3":
+    if report["schema"] in ("corrected-gpu-preflight-v3", "corrected-gpu-preflight-v4"):
         if report["numerical_timing_passed"] is not True or report["learning_health_passed"] is not True:
             raise ValueError("successful numerical/timing and learning qualification required")
+    if report["schema"] == "corrected-gpu-preflight-v4" and report["probe_training"] != {
+            "learning_rate": .0001, "seed": 424245, "updates": 7, "production_rate": True}:
+        raise ValueError("preflight must qualify the adopted production rate")
     if set(report["counts"]) != {"5", "20"}:
         raise ValueError("preflight must qualify both M5 and M20")
     for row in report["counts"].values():
@@ -638,15 +642,15 @@ def check_preflight_evidence(report, *, historical=False):
                 or row["warmup_updates"] != 2 or row["measured_updates"] != 5
                 or not np.isfinite(row["median_step_seconds"]) or row["median_step_seconds"] <= 0):
             raise ValueError("incomplete numerical or timing preflight evidence")
-        if report["schema"] == "corrected-gpu-preflight-v3":
+        if report["schema"] in ("corrected-gpu-preflight-v3", "corrected-gpu-preflight-v4"):
             check_learning_evidence(row)
 
 
 def validate_execution_history(root, protocol, attempts):
     """Portable run archives keep the exact admitted report for every machine."""
     executions = {}
-    if protocol["schema"] != "corrected-full-three-band-v2":
-        raise ValueError("portable execution requires the v2 production protocol")
+    if protocol["schema"] not in ("corrected-full-three-band-v2", "corrected-full-three-band-v3"):
+        raise ValueError("portable execution requires the v2 or v3 production protocol")
     for attempt in attempts:
         identity = attempt["execution_id"]
         if (not isinstance(identity, str) or len(identity) != 32
@@ -659,7 +663,15 @@ def validate_execution_history(root, protocol, attempts):
         check_preflight_evidence(report, historical=True)
         if production_provenance(report["provenance"]) != protocol["provenance"]:
             raise ValueError("execution source differs from the experiment")
-        for key, value in production_protocol(report["controls"]).items():
+        expected = production_protocol(report["controls"])
+        if protocol["schema"] == "corrected-full-three-band-v2":
+            expected["schema"] = protocol["schema"]
+            expected["optimizer"] = "adopted corrected Adam 0.001, no scheduler, no label penalty"
+            for fit in expected["fits"]:
+                fit["training"]["learning_rate"] = .001
+        elif report["schema"] != "corrected-gpu-preflight-v4":
+            raise ValueError("v3 production requires adopted-rate preflight evidence")
+        for key, value in expected.items():
             if protocol[key] != value:
                 raise ValueError("execution changed the scientific protocol")
         if (dict(report["controls"], max_seconds=attempt["controls"]["max_seconds"]) != attempt["controls"]
@@ -703,6 +715,60 @@ def measure_preflight_checkpoints(output, model, optimizer, artifact, config, pr
     return payload, preparation, selected, recovery
 
 
+def timing_io_rows(path):
+    values = []
+    for line in Path(path).read_text().splitlines():
+        key, separator, raw = line.partition("=")
+        if key.strip() == "BANDNET_TIMING_IO_ROWS":
+            if not separator:
+                raise ValueError("malformed timing I/O setting")
+            values.append(int(raw.strip()))
+    if len(values) != 1 or values[0] < 2 or values[0] % 2:
+        raise ValueError("one explicit positive even BANDNET_TIMING_IO_ROWS required")
+    return values[0]
+
+
+def measure_training_reads(path, batch_size, device, budget_check):
+    """One shuffled epoch, matching production's mmap indexing/copy and transfer."""
+    cache = {"method": "posix_fadvise DONTNEED", "advice_succeeded": False,
+             "may_be_page_cached": True, "reason": "advice unavailable; no root cache drop attempted"}
+    if hasattr(os, "posix_fadvise") and hasattr(os, "POSIX_FADV_DONTNEED"):
+        try:
+            with Path(path).open("rb") as stream:
+                os.fsync(stream.fileno())
+                os.posix_fadvise(stream.fileno(), 0, 0, os.POSIX_FADV_DONTNEED)
+            cache.update(advice_succeeded=True, reason="advisory eviction requested, not proof of cold storage")
+        except OSError as error:
+            cache["reason"] = f"advisory eviction failed: {error}"
+    bands = np.load(path, mmap_mode="r")
+    if bands.dtype != np.float64 or bands.shape[1:] != (500, 3):
+        raise ValueError("timing reads require production float64 three-band shape")
+    order = np.random.default_rng(np.random.SeedSequence([271829, 100, 1])).permutation(len(bands))
+    synchronize(device)
+    tick = time.perf_counter()
+    for start in range(0, len(order), batch_size):
+        budget_check()
+        target = np.array(bands[order[start:start + batch_size]], copy=True)
+        transferred = torch.tensor(target, dtype=torch.float64, device=device)
+        synchronize(device)
+        del transferred
+    seconds = time.perf_counter() - tick
+    return {"rows": len(bands), "bytes": bands.nbytes, "seconds": seconds,
+            "rows_per_second": len(bands) / seconds, "cache": cache,
+            "scope": "one complete shuffled epoch: mmap read, host copy, device transfer; no optimizer updates"}
+
+
+def timing_slice_allocation(requested, remaining_seconds, measured_rows_per_second, batch_size):
+    if (requested < 2 or requested % 2 or not np.isfinite(measured_rows_per_second)
+            or measured_rows_per_second <= 0):
+        raise ValueError("explicit even slice target and positive measured generation rate required")
+    allowance = min(120, remaining_seconds - 20)
+    rows = min(requested, int(allowance * measured_rows_per_second / 1.5)) // 2 * 2
+    if allowance <= 0 or rows < batch_size:
+        raise TimeoutError("insufficient allowance for a real dataset I/O slice")
+    return rows, allowance
+
+
 def gpu_preflight(output, *, timing_only=False):
     """Bounded numerical and full-architecture throughput checks, not a fit search."""
     started = time.monotonic()
@@ -726,37 +792,57 @@ def gpu_preflight(output, *, timing_only=False):
     provenance = source_identity()
     output.mkdir()
     retain_sources(output, provenance)
-    report = {"schema": "corrected-timing-check-v2" if timing_only else "corrected-gpu-preflight-v3",
+    bulk = output / "bulk" if timing_only else output
+    if timing_only:
+        bulk.mkdir()
+    report = {"schema": "corrected-timing-check-v3" if timing_only else "corrected-gpu-preflight-v4",
                "passed": False, "provenance": provenance, "hardware": hardware,
                "checkpoint_schedule": "initial-periodic-terminal-v1",
                "numerical_timing_passed": False, "learning_health_passed": False,
               "automatic_resources": automatic, "disposable_timing_test": timing_only,
               "controls": controls, "generation_policy": policy.__dict__,
               "resources": detect_resources().as_dict(), "counts": {},
-               "scope": "M5/M20 numerical checks and full-size batch updates; no accuracy/sizing campaign"}
-    # The approved disposable recheck tests one candidate; it does not adopt a
-    # different scientific learning rate for the fresh production experiment.
-    probe_rate = 0.0001 if timing_only else production_protocol(controls)["fits"][0]["training"]["learning_rate"]
+                "scope": "M5/M20 numerical checks; all M5..M20 throughput in timing mode; no accuracy/sizing campaign"}
+    probe_rate = production_protocol(controls)["fits"][0]["training"]["learning_rate"]
     report["probe_training"] = {"learning_rate": probe_rate, "seed": 424245,
-                                "updates": 7, "candidate_only": timing_only}
+                                 "updates": 7, "production_rate": True}
+    if timing_only:
+        report["timing_policy"] = {"recovery_saves": "measured every count, no interpolation",
+                                  "intermediate_updates": 5, "endpoint_updates": 7,
+                                  "generation_tuning": "M5/M20 tuned; M6-M19 reuse the M5 plan and are charged the slower endpoint tuning time",
+                                  "io_target_rows": timing_io_rows(ROOT / ".env.local"),
+                                  "io_max_seconds": 120, "io_generation_safety_factor": 1.5,
+                                  "export_scope": "report.json, sources/ and small arrays; bulk/ excluded"}
     write_json(output / "report.json", report)
     # Use a separate stream from every development/production population.
-    for interactions in (5, 20):
+    for interactions in (range(5, 21) if timing_only else (5, 20)):
         budget_check()
-        numerical = preflight(interactions, 424242, 8, device=controls["device"])
+        numerical = preflight(interactions, 424242, 8, device=controls["device"]) if interactions in (5, 20) else None
+        measured_updates = 5 if interactions in (5, 20) else 3
         budget_check()
         solver = TriatomicBatchSolver(GRID, interactions)
         labels = sample_labels(controls["batch_size"], interactions, 424243, "train")
-        plan, tuning = tune_execution(solver, *physical_arrays(labels, interactions), policy)
+        if timing_only and interactions not in (5, 20):
+            # Retuning every count would exhaust the allocation; the verifier charges
+            # endpoint tuning time for these counts instead of omitting it.
+            plan = dataclasses.replace(m5_plan, estimated_working_bytes=working_bytes(
+                len(solver.q_hat_values), interactions, m5_plan.chunk_size, m5_plan.workers))
+            tuning = {"reused_plan_from_interactions": 5, "selected_plan": dataclasses.asdict(plan),
+                      "elapsed_seconds": None}
+        else:
+            plan, tuning = tune_execution(solver, *physical_arrays(labels, interactions), policy)
+        if interactions == 5:
+            m5_plan = plan
         budget_check()
         data_config = dict(production_protocol(controls)["shared"], interactions=interactions,
                            seed=424244, train_count=controls["batch_size"],
                            validation_count_per_population=2048, test_count_per_population=2)
         tick = time.perf_counter()
-        generate_artifact(output / f"m{interactions}-data", data_config, solver, plan, provenance, checkpoint_rows=4096)
+        generate_artifact(bulk / f"m{interactions}-data", data_config, solver, plan, provenance,
+                          checkpoint_rows=4096, after_chunk=lambda *args: budget_check())
         generation_seconds = time.perf_counter() - tick
         budget_check()
-        artifact = LabeledArtifact(output / f"m{interactions}-data")
+        artifact = LabeledArtifact(bulk / f"m{interactions}-data")
         target = np.array(artifact.arrays["train"][1], copy=True)
         torch.manual_seed(424245)
         model = ProductionBandInverse(interactions, np.sqrt(np.mean(target**2, axis=(0, 1)))).to(device)
@@ -824,7 +910,7 @@ def gpu_preflight(output, *, timing_only=False):
             budget_check()
             observed_update(target, "warmup")
         durations, losses = [], []
-        for _ in range(5):
+        for _ in range(measured_updates):
             budget_check()
             synchronize(device)
             tick = time.perf_counter()
@@ -842,11 +928,11 @@ def gpu_preflight(output, *, timing_only=False):
             raise error
         training_config = {"architecture": "original-five-relu-corrected-io-v1",
                            "batch_size": controls["batch_size"], "learning_rate": probe_rate,
-                           "seed": 424245, "updates": 7, "scope": "disposable-timing-or-preflight"}
-        checkpoint = output / f"m{interactions}.pt"
+                            "seed": 424245, "updates": 2 + measured_updates, "scope": "disposable-timing-or-preflight"}
+        checkpoint = bulk / f"m{interactions}.pt"
         budget_check()
         payload, payload_prepare_seconds, save_seconds, resume_save_seconds = measure_preflight_checkpoints(
-            output, model, optimizer, artifact, training_config, provenance, device)
+            bulk, model, optimizer, artifact, training_config, provenance, device)
         tick = time.perf_counter()
         for population in ("validation_dense", "validation_sparse"):
             budget_check()
@@ -858,11 +944,13 @@ def gpu_preflight(output, *, timing_only=False):
         budget_check()
         before = predict(model, probe, controls["batch_size"])
         tick = time.perf_counter()
-        restored, _ = load_model(checkpoint, device=controls["device"])
-        np.testing.assert_array_equal(before, predict(restored, probe, controls["batch_size"]))
-        cpu_model, _ = load_model(checkpoint)
-        cpu_predictions = predict(cpu_model, probe, controls["batch_size"])
-        np.testing.assert_allclose(before, cpu_predictions, rtol=1e-10, atol=1e-10)
+        restored, cpu_model = None, None
+        if interactions in (5, 20):
+            restored, _ = load_model(checkpoint, device=controls["device"])
+            np.testing.assert_array_equal(before, predict(restored, probe, controls["batch_size"]))
+            cpu_model, _ = load_model(checkpoint)
+            cpu_predictions = predict(cpu_model, probe, controls["batch_size"])
+            np.testing.assert_allclose(before, cpu_predictions, rtol=1e-10, atol=1e-10)
         _, scores, failed = evaluate_designs(probe, before, interactions)
         if failed or not np.all(np.isfinite(scores)):
             raise ArithmeticError("GPU checkpoint predictions failed common CPU scoring")
@@ -887,10 +975,10 @@ def gpu_preflight(output, *, timing_only=False):
             synchronize(device)
             resume_verification_seconds = time.perf_counter() - tick
             del resumed, resumed_optimizer, resume_state
-        row = {"numerical": numerical, "calibration": tuning,
+        row = {"numerical": numerical, "calibration": tuning, "training_configuration": training_config,
                "generation_write_seconds": generation_seconds,
                "generated_rows": sum(len(pair[0]) for pair in artifact.arrays.values()),
-               "warmup_updates": 2, "measured_updates": 5, "batch_size": controls["batch_size"],
+                "warmup_updates": 2, "measured_updates": measured_updates, "batch_size": controls["batch_size"],
                "transfer_and_mmap_inclusive_step_seconds": durations, "losses": losses,
                "median_step_seconds": float(np.median(durations)),
                "peak_cuda_allocated_bytes": torch.cuda.max_memory_allocated(device),
@@ -906,7 +994,7 @@ def gpu_preflight(output, *, timing_only=False):
                "resume_verification_updates": 0 if timing_only else 2,
                "resume_verification_seconds": None if timing_only else resume_verification_seconds,
                "full_validation_4096_seconds": validation_seconds,
-               "cuda_reload_exact": True, "cpu_reload_prediction_tolerance": {"rtol": 1e-10, "atol": 1e-10},
+                "cuda_reload_exact": True if interactions in (5, 20) else None, "cpu_reload_prediction_tolerance": {"rtol": 1e-10, "atol": 1e-10},
                "common_cpu_scoring_passed": True}
         if timing_only:
             budget_check()
@@ -915,11 +1003,33 @@ def gpu_preflight(output, *, timing_only=False):
                                controls["batch_size"], row["checkpoint_sha256"])
             row["compact_evaluation_seconds"] = time.perf_counter() - tick
             row["compact_evaluation_rows"] = len(artifact.arrays["validation_dense"][0])
+            indices = np.linspace(0, row["compact_evaluation_rows"] - 1, 8, dtype=int)
+            save_array(output / f"m{interactions}-timing-records" / "sample_targets.npy",
+                       np.array(artifact.arrays["validation_dense"][1][indices], copy=True))
         report["counts"][str(interactions)] = row
         write_json(output / "report.json", report)
         del model, restored, cpu_model, optimizer, forward, artifact, payload
         gc.collect()
         torch.cuda.empty_cache()
+    if timing_only:
+        budget_check()
+        remaining = controls["max_seconds"] - (time.monotonic() - started)
+        rate = report["counts"]["5"]["generated_rows"] / report["counts"]["5"]["generation_write_seconds"]
+        requested = report["timing_policy"]["io_target_rows"]
+        rows, allowance = timing_slice_allocation(requested, remaining, rate, controls["batch_size"])
+        config = dict(production_protocol(controls)["fits"][0]["data"], seed=424247,
+                      train_count=rows, validation_count_per_population=2, test_count_per_population=2)
+        tick = time.perf_counter()
+        generate_artifact(bulk / "main-m5-io", config, TriatomicBatchSolver(GRID, 5), m5_plan, provenance,
+                          checkpoint_rows=4096, after_chunk=lambda *args: budget_check())
+        generation = time.perf_counter() - tick
+        io_artifact = LabeledArtifact(bulk / "main-m5-io")
+        bands_path = Path(io_artifact.arrays["train"][1].filename)
+        del io_artifact
+        report["disk_read"] = measure_training_reads(bands_path, controls["batch_size"], device, budget_check)
+        report["disk_read"].update(requested_rows=requested, generation_seconds=generation,
+                                   reduced_for_budget=rows != requested, generation_allowance_seconds=allowance,
+                                   reduction_rule="min(target, floor(min(120s, remaining minus 20s reserve) times M5 generation rate / 1.5)); even rows")
     median = max(row["median_step_seconds"] for row in report["counts"].values())
     budget_check()
     steps = 5 * ((2500000 + 1023) // 1024) + 16 * 100 * ((100000 + 1023) // 1024)
@@ -928,11 +1038,14 @@ def gpu_preflight(output, *, timing_only=False):
                   elapsed_seconds=time.monotonic() - started,
                   optimizer_steps_in_full_matrix=steps,
                   training_only_projection_seconds=steps * median,
-                  projection_scope="endpoint median extrapolation only; excludes validation, checkpoints, generation, evaluation, auditing and interruptions",
+                   projection_scope="conservative max-count training median only; use independent stage projection for the full estimate",
                   process_lifetime_peak_rss_bytes=int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss) * 1024)
     report["files"] = {str(path.relative_to(output)): sha256_file(path)
-                       for path in sorted(output.rglob("*")) if path.is_file() and path.name != "report.json"}
+                       for path in sorted(output.rglob("*")) if path.is_file() and path.name != "report.json"
+                       and (not timing_only or not path.is_relative_to(bulk))}
     write_json(output / "report.json", report)
+    if timing_only:
+        (output / "report.sha256").write_text(sha256_file(output / "report.json") + "\n")
     print(json.dumps({"passed": healthy, "report": str(output / "report.json"),
                        "training_only_projection_seconds": report["training_only_projection_seconds"]}), flush=True)
     if not healthy:

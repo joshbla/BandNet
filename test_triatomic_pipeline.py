@@ -28,7 +28,7 @@ if HAS_TORCH:
     from corrected_pilot import (settings, production_protocol, production_settings, production_run,
                                  production_provenance, check_preflight_evidence, gpu_preflight, configure_machine_resources,
                                  learning_health, learning_observation, check_learning_evidence, tune_training_threads,
-                                 measure_preflight_checkpoints)
+                                 measure_preflight_checkpoints, timing_io_rows, measure_training_reads, timing_slice_allocation)
     from corrected_inference import infer_files
     from verify_corrected_pilot import verify_production, timing_workload, timing_projection, verify_timing
     from triatomic_learning import (BandInverse, DifferentiableTriatomic, band_errors, band_loss,
@@ -70,7 +70,8 @@ def fixture_preflight(root, source, hardware, controls, policy):
            "batch_size": controls["batch_size"], "warmup_updates": 2,
            "measured_updates": 5, "median_step_seconds": 1}
     row.update(fixture_learning_evidence())
-    report = {"schema": "corrected-gpu-preflight-v3", "passed": True, "provenance": source,
+    report = {"schema": "corrected-gpu-preflight-v4", "passed": True, "provenance": source,
+              "probe_training": {"learning_rate": .0001, "seed": 424245, "updates": 7, "production_rate": True},
                "numerical_timing_passed": True, "learning_health_passed": True,
               "hardware": hardware, "controls": controls, "generation_policy": policy.__dict__,
               "counts": {"5": row, "20": row},
@@ -712,6 +713,14 @@ class CorrectedLearningTests(unittest.TestCase):
             fixture_preflight(root, {"source_sha256": {}}, {"fixture": True}, {"batch_size": 1024}, GenerationPolicy(0, 0, 1))
             original = (root / "report.json").read_text()
             check_preflight_evidence(json.loads(original))
+            report = json.loads(original)
+            report["probe_training"]["learning_rate"] = .001
+            with self.assertRaisesRegex(ValueError, "production rate"):
+                check_preflight_evidence(report)
+            report["schema"] = "corrected-gpu-preflight-v3"
+            check_preflight_evidence(report, historical=True)
+            with self.assertRaisesRegex(ValueError, "portable GPU preflight"):
+                check_preflight_evidence(report)
             for key in ("cuda_reload_exact", "adam_reload_next_update_exact", "common_cpu_scoring_passed"):
                 report = json.loads(original)
                 report["counts"]["20"][key] = False
@@ -751,7 +760,8 @@ class CorrectedLearningTests(unittest.TestCase):
               patch("corrected_pilot.source_identity", return_value={"source_sha256": {}}),
               patch("corrected_pilot.checked_device", return_value=torch.device("cpu")),
               patch("corrected_pilot.configure_machine_resources", return_value={"available_threads": 2}),
-              patch("corrected_pilot.update_local_settings"),
+              patch.multiple("corrected_pilot", update_local_settings=lambda *args: None,
+                             timing_io_rows=lambda path: 8),
               patch("corrected_pilot.tune_execution", side_effect=tune),
               patch("corrected_pilot.generate_artifact", side_effect=small_data),
               patch("corrected_pilot.learning_observation", side_effect=synthetic_observation),
@@ -770,22 +780,33 @@ class CorrectedLearningTests(unittest.TestCase):
                 _, payload = load_model(root / f"m{count}.pt")
                 self.assertEqual(payload["training_configuration"]["seed"], 424245)
                 self.assertEqual(payload["training_configuration"]["updates"], 7)
-                self.assertEqual(payload["training_configuration"]["learning_rate"], .001)
+                self.assertEqual(payload["training_configuration"]["learning_rate"], .0001)
                 self.assertNotIn("epochs", payload["training_configuration"])
             disposable = Path(temporary) / "timing"
             gpu_preflight(disposable, timing_only=True)
             timing = json.loads((disposable / "report.json").read_text())
-            self.assertEqual(timing["schema"], "corrected-timing-check-v2")
+            self.assertEqual(timing["schema"], "corrected-timing-check-v3")
             self.assertEqual(timing["checkpoint_schedule"], "initial-periodic-terminal-v1")
             self.assertTrue(timing["disposable_timing_test"])
             self.assertEqual(timing["probe_training"], {"learning_rate": .0001, "seed": 424245,
-                                                       "updates": 7, "candidate_only": True})
+                                                        "updates": 7, "production_rate": True})
+            self.assertEqual(set(timing["counts"]), {str(k) for k in range(5, 21)})
+            self.assertEqual(timing["disk_read"]["rows"], 8)
+            self.assertEqual(timing["disk_read"]["bytes"], 8 * 1500 * 8)
+            self.assertTrue(timing["disk_read"]["cache"]["may_be_page_cached"])
+            self.assertFalse(any(name.startswith("bulk/") for name in timing["files"]))
+            self.assertEqual((disposable / "report.sha256").read_text().strip(),
+                             hashlib.sha256((disposable / "report.json").read_bytes()).hexdigest())
+            for count in range(6, 20):
+                self.assertEqual(timing["counts"][str(count)]["measured_updates"], 3)
+                self.assertIsNone(timing["counts"][str(count)]["numerical"])
             for count in (5, 20):
-                _, payload = load_model(disposable / f"m{count}.pt")
+                _, payload = load_model(disposable / "bulk" / f"m{count}.pt")
                 self.assertEqual(payload["training_configuration"]["learning_rate"], .0001)
-                state = read_resume_checkpoint(disposable / f"m{count}-resume-probe.pt")
+                state = read_resume_checkpoint(disposable / "bulk" / f"m{count}-resume-probe.pt")
                 self.assertEqual(state["optimizer"]["param_groups"][0]["lr"], .0001)
-            self.assertEqual(production_protocol(controls)["fits"][0]["training"]["learning_rate"], .001)
+            self.assertEqual(production_protocol(controls)["fits"][0]["training"]["learning_rate"], .0001)
+            self.assertEqual(production_protocol(controls)["schema"], "corrected-full-three-band-v3")
             self.assertIn(timing["controls"]["torch_threads"], (1, 2))
             self.assertTrue(all(row["resume_verification_updates"] == 0 for row in timing["counts"].values()))
             with self.assertRaisesRegex(ValueError, "fixed batch size"):
@@ -918,6 +939,127 @@ class CorrectedLearningTests(unittest.TestCase):
             timing_projection(dict(historical, checkpoint_schedule="initial-periodic-terminal-v1"), 1e9)
         with self.assertRaisesRegex(ValueError, "lean"):
             timing_projection(dict(current, checkpoint_schedule="initial-periodic-epoch-v1"), 1e9)
+
+    def test_timing_io_setting_and_complete_shuffled_read(self):
+        self.assertEqual(timing_slice_allocation(250000, 160, 4000, 1024), (250000, 120))
+        self.assertEqual(timing_slice_allocation(250000, 80, 1000, 1024), (40000, 60))
+        with self.assertRaises(TimeoutError):
+            timing_slice_allocation(250000, 20, 1000, 1024)
+        with self.assertRaises(ValueError):
+            timing_slice_allocation(250000, 80, 0, 1024)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            setting = root / ".env.local"
+            setting.write_text("BANDNET_TIMING_IO_ROWS=250000\n")
+            self.assertEqual(timing_io_rows(setting), 250000)
+            for text in ("", "BANDNET_TIMING_IO_ROWS=3\n", "BANDNET_TIMING_IO_ROWS=2\nBANDNET_TIMING_IO_ROWS=4\n"):
+                setting.write_text(text)
+                with self.assertRaises(ValueError):
+                    timing_io_rows(setting)
+            bands = np.arange(7 * 1500, dtype=np.float64).reshape(7, 500, 3)
+            np.save(root / "bands.npy", bands)
+            calls = []
+            transfer = torch.tensor
+            def record_transfer(target, **kwargs):
+                calls.append(target.copy())
+                return transfer(target, **kwargs)
+            with patch("corrected_pilot.torch.tensor", side_effect=record_transfer):
+                result = measure_training_reads(root / "bands.npy", 3, torch.device("cpu"), lambda: None)
+            self.assertEqual([len(batch) for batch in calls], [3, 3, 1])
+            np.testing.assert_array_equal(np.sort(np.concatenate(calls)[:, 0, 0]), bands[:, 0, 0])
+            self.assertEqual(result["bytes"], bands.nbytes)
+            self.assertEqual(result["rows_per_second"], 7 / result["seconds"])
+            self.assertTrue(result["cache"]["may_be_page_cached"])
+            def expired():
+                raise TimeoutError("expired fixture")
+            with self.assertRaises(TimeoutError):
+                measure_training_reads(root / "bands.npy", 3, torch.device("cpu"), expired)
+
+    def test_all_count_timing_projection_and_small_export_verification(self):
+        row = {"transfer_and_mmap_inclusive_step_seconds": [1., 2., 3., 4., 5.],
+               "median_step_seconds": 3., "warmup_updates": 2, "measured_updates": 5, "batch_size": 1024,
+               "generation_write_seconds": 10., "generated_rows": 5500,
+               "calibration": {"elapsed_seconds": 1.}, "full_validation_4096_seconds": 2.,
+               "resume_checkpoint_write_seconds": .1, "checkpoint_write_seconds": .05,
+               "best_payload_prepare_seconds": .01, "compact_evaluation_seconds": 1.,
+               "compact_evaluation_rows": 2048, "reload_and_scoring_check_seconds": .2,
+               "checkpoint_sha256": "fixture-checkpoint-not-exported", "resume_verification_updates": 0,
+               "cuda_reload_exact": True, "common_cpu_scoring_passed": True,
+               "cpu_reload_prediction_tolerance": {"rtol": 1e-10, "atol": 1e-10},
+               "numerical": {"interior_gradcheck": True, "finite_boundary_and_repeated_band_gradients": True}}
+        row.update(fixture_learning_evidence())
+        report = {"schema": "corrected-timing-check-v3", "passed": True,
+                  "numerical_timing_passed": True, "learning_health_passed": True,
+                  "probe_training": {"learning_rate": .0001, "seed": 424245, "updates": 7, "production_rate": True},
+                  "checkpoint_schedule": "initial-periodic-terminal-v1",
+                  "controls": {"checkpoint_steps": 5000, "batch_size": 1024, "torch_threads": 1},
+                  "counts": {}, "provenance": {"source_sha256": {}},
+                  "automatic_resources": {"training_threads": {"selected_threads": 1,
+                       "measurements": [{"threads": 1, "seconds": [1., 1.], "median_seconds": 1.}]}},
+                  "disk_read": {"rows": 250000, "bytes": 250000 * 1500 * 8, "seconds": 10.,
+                                "rows_per_second": 25000., "requested_rows": 250000,
+                                "reduced_for_budget": False, "cache": {"may_be_page_cached": True}},
+                  "timing_policy": {"io_target_rows": 250000, "recovery_saves": "measured every count, no interpolation"},
+                  "optimizer_steps_in_full_matrix": 169010}
+        for k in range(5, 21):
+            measured = 5 if k in (5, 20) else 3
+            current = copy.deepcopy(row)
+            current.update(measured_updates=measured,
+                           generated_rows=1024 + 4096 + 4 + len(adversarial_labels(k)) + len(showcase_labels(k)),
+                           transfer_and_mmap_inclusive_step_seconds=[float(k)] * measured,
+                           median_step_seconds=float(k),
+                           training_configuration={"learning_rate": .0001, "seed": 424245,
+                                                   "updates": measured + 2, "batch_size": 1024})
+            if k not in (5, 20):
+                current["calibration"] = {"reused_plan_from_interactions": 5, "elapsed_seconds": None}
+            report["counts"][str(k)] = current
+        report["counts"]["20"]["calibration"] = {"elapsed_seconds": 4.}
+        projection = timing_projection(report, 1e9, 2.)
+        # M5 main/study and the shared targets use M5 tuning; the rest are charged the slower endpoint.
+        self.assertEqual(projection["stages"]["generation_calibration"]["lower_seconds"], 3 * 1. + 15 * 4.)
+        expected_training = 5 * 12210 + sum(k * 9800 for k in range(5, 21))
+        self.assertEqual(projection["stages"]["training_updates"]["lower_seconds"], expected_training)
+        self.assertEqual(projection["stages"]["full_dataset_shuffled_reads"]["upper_seconds"],
+                         (2500000 * 5 + 16 * 100000 * 100) / 25000)
+        self.assertEqual(len(projection["fits"]), 17)
+        self.assertEqual(projection["planning_cost_with_25_percent_margin"], projection["upper_seconds"] * 1.25 / 3600 * 2)
+        incomplete = copy.deepcopy(report)
+        del incomplete["counts"]["12"]
+        with self.assertRaisesRegex(ValueError, "without interpolation"):
+            timing_projection(incomplete, 1e9)
+        incomplete = copy.deepcopy(report)
+        del incomplete["disk_read"]
+        with self.assertRaises(KeyError):
+            timing_projection(incomplete, 1e9)
+        with self.assertRaises(ValueError):
+            timing_projection(report, 1e9, 0)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for k in range(5, 21):
+                directory = root / f"m{k}-timing-records"
+                directory.mkdir()
+                labels = sample_labels(8, k, 100 + k, "train")
+                masses, springs = physical_arrays(labels, k)
+                targets = np.stack([triatomic_frequencies(m, s, GRID) for m, s in zip(masses, springs)])
+                predictions = np.tile(labels[0], (2048, 1))
+                indices = np.linspace(0, 2047, 8, dtype=int)
+                predictions[indices] = labels
+                np.save(directory / "predictions.npy", predictions)
+                np.save(directory / "per_band_errors.npy", np.zeros((2048, 3)))
+                np.save(directory / "sample_targets.npy", targets)
+                (directory / "manifest.json").write_text(json.dumps({"complete": True, "completed_rows": 2048,
+                      "failures": [], "identity": {"checkpoint_sha256": row["checkpoint_sha256"]}}))
+                (directory / "scores.json").write_text("{}")
+            report["files"] = {str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest()
+                               for path in root.rglob("*") if path.is_file()}
+            (root / "report.json").write_text(json.dumps(report))
+            (root / "report.sha256").write_text(hashlib.sha256((root / "report.json").read_bytes()).hexdigest())
+            verified = verify_timing(root, 2.)
+            self.assertTrue(verified["passed"])
+            self.assertEqual(verified["checked_reference_scores_on_cpu"], 128)
+            (root / "m6-timing-records" / "sample_targets.npy").write_bytes(b"partial copy")
+            with self.assertRaisesRegex(ValueError, "checksum mismatch"):
+                verify_timing(root)
 
     def test_compact_cross_count_resume_checksums_and_common_scores(self):
         with tempfile.TemporaryDirectory() as temporary:

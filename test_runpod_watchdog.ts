@@ -35,9 +35,9 @@ test('receipt rejects unrelated or missing creation evidence', () => {
 });
 
 test('deadline includes provisioning and reserves a minute for actual shutdown', async () => {
-  assert.equal(ALLOCATION_MS, 600_000);
+  assert.equal(ALLOCATION_MS, 900_000);
   const f = fixture();
-  f.setTime(start + 200_000); // Setup already consumed part of the 10 minutes.
+  f.setTime(start + 200_000); // Setup already consumed part of the 15 minutes.
   await watch(receipt, f.controller);
   assert.deepEqual(f.stopTimes, [start + ALLOCATION_MS - SHUTDOWN_RESERVE_MS]);
   assert.equal(f.events.at(-1)?.event, 'stopped-verified');

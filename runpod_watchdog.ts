@@ -10,7 +10,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const API = 'https://api.runpod.io/v2';
-export const ALLOCATION_MS = 600_000;
+export const ALLOCATION_MS = 900_000;
 export const SHUTDOWN_RESERVE_MS = 60_000;
 export const RETRIEVAL_MS = 180_000;
 export const RETRIEVAL_SHUTDOWN_RESERVE_MS = 45_000;

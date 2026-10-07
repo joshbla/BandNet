@@ -66,9 +66,9 @@ All four candidate witnesses improved with varied predictions and live gradients
 this does not establish production accuracy or GPU learning. The real experiment
 starts fresh only after owner approval. Test weights/data never start production.
 
-Production and production preflight still specify `0.001`. The timing-only check
-and auditor now explicitly qualify candidate `0.0001`; that passed short GPU
-qualification does not itself adopt a production protocol or authorize production.
+Production protocol `corrected-full-three-band-v3` adopts Adam `0.0001` after
+the short CPU/GPU checks. Production preflight v4 probes that same rate.
+Short learning witnesses do not establish long-run accuracy or authorize production.
 The cross-machine procedures below remain reference material, not the active task.
 
 For a future explicitly approved GPU check, use a container-disk software environment/cache
@@ -79,6 +79,29 @@ replaces CPU/RAM reserve and thread settings with choices for the actual machine
 python corrected_pilot.py --timing-check --output /workspace/artifacts/disposable-timing
 python verify_corrected_pilot.py --timing --run /workspace/artifacts/disposable-timing --report /workspace/artifacts/timing-audit.json
 ```
+
+Timing report `corrected-timing-check-v3` measures every M5..M20 count: two warmups,
+five timed endpoint updates or three intermediate updates, full 4,096-row validation,
+and a full recovery save per count. Numerical/reload checks remain at M5/M20.
+Generation tuning runs at M5/M20; M6-M19 reuse the M5 plan to fit the allocation,
+and the auditor charges them the slower endpoint's tuning time.
+Within the 560-second cooperative limit, the remaining budget funds at most
+120 seconds of main-M5 slice generation/read measurement, reserving 20 seconds for
+finalization. `BANDNET_TIMING_IO_ROWS=250000` requests about 3 GB of real float64
+bands; the report records any time-based reduction. One complete shuffled epoch
+uses production mmap indexing, host copying and device transfer, without updates.
+Page-cache eviction is advisory and never reported as guaranteed cold storage.
+
+Export `report.json`, `report.sha256`, `sources/`, all `m*-timing-records/` and the
+independent audit only. Exclude `bulk/`, which contains disposable checkpoints and
+datasets. Each small evidence file is checksummed; `report.sha256` covers the report.
+The portable audit checks sampled scores against the independent physics reference,
+not checkpoint prediction reexecution. Historical timing v1/v2 audits remain supported.
+Pass `--hourly-price` with the actual allocation price to the auditor for seconds,
+hours, cost and an explicit 25-percent margin. Without that input it reports no cost.
+All 17 fits use their measured count-specific rates plus measured shuffled-read
+bandwidth. Reads are added conservatively to cached-read-inclusive updates, so some
+I/O is counted twice. Setup/export and long-run learning remain unmeasured.
 
 Use the Python executable from the frozen training environment. The first H100
 attempt failed before timing on excessive CUDA eigensolver scratch allocation.
@@ -92,16 +115,15 @@ explicit 25-percent margin, plus setup/export. This is a schedule-only estimate,
 not a measurement of the changed code, and still exceeds the owner's $11 ceiling.
 See `../docs/THREE_BAND_RERUN_MAP.md`, Bounded Learning Diagnosis And Lean Recovery
 Saving, for the diagnosis, source hashes, limitations and saved evidence.
-Both retry pods/storage were removed. Current verification: 76 Python tests pass,
-plus the affected regression after the final nonfinite-receipt refinement.
-The controller's eight prior passing tests were not rerun for this local stage.
+Both retry pods/storage were removed. Current local verification: 78 Python tests
+and nine shutdown-controller tests pass. No GPU timing v3 measurement was run locally.
 
 The fixed CUDA runner restores the recorded five-hidden-layer ReLU architecture
 (`5000,2500,5000,2500,5000`) with the adopted corrected contract: 1,500 scaled
 frequency inputs, bounded physical outputs, float64 network/physics, and band
 loss. M5 has 57,550,006 trainable parameters. The input q column is redundant on
-the fixed grid and remains excluded. Adam stays at the corrected pipeline's
-`0.001`, without the historical parameter-loss scheduler. This is a corrected
+the fixed grid and remains excluded. Adam uses the adopted production rate
+`0.0001`, without the historical parameter-loss scheduler. This is a corrected
 retraining, not historical checkpoint continuation.
 
 The matrix is main M5 at 2,500,000 examples/five epochs plus M5-M20 at 100,000
@@ -127,8 +149,8 @@ uv run --frozen --extra training python corrected_pilot.py --gpu-preflight --out
 
 Preflight checks M5/M20 values, gradients, full-architecture optimizer updates,
 CPU-scored predictions, CUDA/CPU checkpoint reload, resources and native CPU
-thread control. New preflight v3 also requires learning progress, varied predictions
-and live gradients; timing v2 reports the same learning evidence separately from
+thread control. New preflight v4 also requires learning progress, varied predictions
+and live gradients; timing v3 reports the same learning evidence separately from
 numerical/timing correctness. Failed learning stops before large checkpoint export
 or the next endpoint, retaining diagnostic observations. It measures two warmup and five timed updates per endpoint with
 batch size 1,024, full validation and checkpoint-writing/integrity-hashing overhead.
@@ -231,9 +253,9 @@ remain required on rented hardware.
 
 ### Initial RunPod Allocation And Independent Shutdown
 
-The latest disposable allocation has an owner-set **600-second maximum**, counted from the
+The next disposable allocation has an owner-set **15-minute maximum**, counted from the
 allocation request, including provisioning, setup, checks, evidence and shutdown.
-Use at most **180 seconds** for the inner timing-runner limit and reduce it
+Use at most **560 seconds** for the inner timing-runner limit and reduce it
 when setup leaves less time for audit/export. The allocation and temporary storage count
 toward the same **$11 total ceiling**. Neither this procedure nor the example
 configuration authorizes paid creation.
@@ -273,7 +295,7 @@ unattended during this handoff. Authentication and local controller checks must
 be complete before requesting a paid allocation.
 
 The detached controller uses macOS `caffeinate -is` to inhibit idle sleep while
-it runs. It sends the normal check's stop request at **540 seconds**, leaving 60 seconds for
+it runs. It sends the normal check's stop request at **840 seconds** of its 900-second allocation, leaving 60 seconds for
 provider shutdown, and retries API failures. A monotonic clock prevents wall-clock
 rollback from extending the running deadline. On success or check/setup failure,
 request earlier shutdown:
@@ -300,8 +322,8 @@ mount and verify exported copies before deleting storage.
 
 This is a local, best-effort controller, not a provider-guaranteed spending cap.
 Mac power loss, loss of connectivity or a provider outage can prevent timely
-shutdown. Keep the Mac powered and online. If shutdown remains unverified at
-600 seconds it logs the missed deadline and continues retrying; it does not
+shutdown. Keep the Mac powered and online. If shutdown remains unverified at the allocation end
+(900 seconds), it logs the missed deadline and continues retrying; it does not
 silently extend training or declare success. Eight simulated controller tests
 pass; local authentication, detached arming, direct SSH and authenticated early
 stop worked on the H100. The corrected lifecycle/runtime verification rule is
