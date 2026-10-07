@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ALLOCATION_MS, SHUTDOWN_RESERVE_MS, allocationStart, confirmedStopped, validateReceipt, verifyIdentity, watch } from './runpod_watchdog.ts';
+import { ALLOCATION_MS, SHUTDOWN_RESERVE_MS, RETRIEVAL_MS, RETRIEVAL_SHUTDOWN_RESERVE_MS, allocationStart, confirmedStopped, validateReceipt, verifyIdentity, watch } from './runpod_watchdog.ts';
 import type { Pod, Receipt } from './runpod_watchdog.ts';
 
 // Artificial epoch used only to exercise elapsed-time logic, not a run timestamp.
@@ -35,8 +35,9 @@ test('receipt rejects unrelated or missing creation evidence', () => {
 });
 
 test('deadline includes provisioning and reserves a minute for actual shutdown', async () => {
+  assert.equal(ALLOCATION_MS, 600_000);
   const f = fixture();
-  f.setTime(start + 200_000); // Setup already consumed part of the 15 minutes.
+  f.setTime(start + 200_000); // Setup already consumed part of the 10 minutes.
   await watch(receipt, f.controller);
   assert.deepEqual(f.stopTimes, [start + ALLOCATION_MS - SHUTDOWN_RESERVE_MS]);
   assert.equal(f.events.at(-1)?.event, 'stopped-verified');
@@ -47,6 +48,20 @@ test('explicit early success/failure request stops immediately', async () => {
   f.controller.earlyStop = () => true;
   await watch(receipt, f.controller);
   assert.deepEqual(f.stopTimes, [start]);
+});
+
+test('separately approved retrieval preserves creation identity and uses its short restart deadline', async () => {
+  const f = fixture();
+  const retrieval = { ...receipt, retrievalRequestedAtMs: start + 100_000 };
+  f.setTime(retrieval.retrievalRequestedAtMs + 20_000);
+  assert.equal(RETRIEVAL_MS, 180_000);
+  assert.equal(allocationStart(retrieval), retrieval.retrievalRequestedAtMs);
+  await watch(retrieval, f.controller);
+  assert.deepEqual(f.stopTimes, [retrieval.retrievalRequestedAtMs + RETRIEVAL_MS - RETRIEVAL_SHUTDOWN_RESERVE_MS]);
+  assert.equal(f.events.at(-1)?.event, 'stopped-verified');
+  assert.throws(() => validateReceipt({ ...retrieval, retrievalRequestedAtMs: 0 }), /retrieval request/);
+  assert.throws(() => validateReceipt({ ...retrieval, retrievalRequestedAtMs: NaN }), /retrieval request/);
+  assert.throws(() => verifyIdentity({ ...running(), id: 'foreign-pod' }, retrieval), /identity/);
 });
 
 test('arming late does not reset the deadline', async () => {

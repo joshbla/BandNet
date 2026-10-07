@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from corrected_pilot import ROOT, settings, production_settings, production_protocol, validate_execution_history
+from corrected_pilot import ROOT, settings, production_settings, production_protocol, validate_execution_history, check_learning_evidence
 from triatomic_data import (LabeledArtifact, array_hash, sha256_file, write_json,
                             adversarial_labels, showcase_labels, physical_arrays)
 from triatomic_genuine_formula import triatomic_frequencies
@@ -146,10 +146,12 @@ def verify_sizing(root, batch_size):
                       "final_tests_and_showcases_evaluated": False}}
 
 
-def timing_workload(checkpoint_steps):
+def timing_workload(checkpoint_steps, checkpoint_schedule):
     """Independent arithmetic for the agreed fixed experiment, not fitted timing."""
     if type(checkpoint_steps) is not int or checkpoint_steps < 1:
         raise ValueError("positive checkpoint interval required")
+    if checkpoint_schedule not in ("initial-periodic-epoch-v1", "initial-periodic-terminal-v1"):
+        raise ValueError("unsupported checkpoint schedule")
     fits = [(5, 2500000, 5, 125000), *[(k, 100000, 100, 5000) for k in range(5, 21)]]
     work = {"fits": 17, "optimizer_updates": 0, "generated_rows": 0,
             "generated_payload_bytes": 0, "validation_passes": 0,
@@ -162,7 +164,8 @@ def timing_workload(checkpoint_steps):
         work["generated_rows"] += rows
         work["generated_payload_bytes"] += rows * (1500 + k + 1) * 8
         work["validation_passes"] += epochs + 1
-        work["resumable_checkpoint_writes"] += epochs + 2 + steps // checkpoint_steps
+        boundary_saves = epochs + 2 if checkpoint_schedule == "initial-periodic-epoch-v1" else 2
+        work["resumable_checkpoint_writes"] += boundary_saves + steps // checkpoint_steps
         work["final_records"] += 2 * test + extras + (20000 if index else 0)
     shared_rows = 32 + 4 + 20000 + len(adversarial_labels(5)) + len(showcase_labels(5))
     work["generated_rows"] += shared_rows
@@ -171,7 +174,17 @@ def timing_workload(checkpoint_steps):
 
 
 def timing_projection(report, hash_bytes_per_second):
-    work = timing_workload(report["controls"]["checkpoint_steps"])
+    if report["schema"] == "corrected-timing-check-v1":
+        checkpoint_schedule = "initial-periodic-epoch-v1"
+        if "checkpoint_schedule" in report:
+            raise ValueError("historical timing schema must retain its original checkpoint schedule")
+    elif report["schema"] == "corrected-timing-check-v2":
+        checkpoint_schedule = report["checkpoint_schedule"]
+        if checkpoint_schedule != "initial-periodic-terminal-v1":
+            raise ValueError("new timing schema requires the lean checkpoint schedule")
+    else:
+        raise ValueError("unsupported timing report schema")
+    work = timing_workload(report["controls"]["checkpoint_steps"], checkpoint_schedule)
     rows = list(report["counts"].values())
     stages = {}
 
@@ -198,7 +211,8 @@ def timing_projection(report, hash_bytes_per_second):
     stage("dataset_integrity_scans", [1 / hash_bytes_per_second], 3 * work["generated_payload_bytes"])
     lower = sum(row["lower_seconds"] for row in stages.values())
     upper = sum(row["upper_seconds"] for row in stages.values())
-    return {"workload": work, "stages": stages, "lower_seconds": lower, "upper_seconds": upper,
+    return {"checkpoint_schedule": checkpoint_schedule,
+            "workload": work, "stages": stages, "lower_seconds": lower, "upper_seconds": upper,
             "planning_seconds_with_25_percent_margin": upper * 1.25,
             "range_meaning": "M5/M20 measured-rate bracket plus best-selection-count bracket; not a confidence interval or guarantee",
             "limitations": ["unmeasured intermediate interaction counts", "small cached sample versus full dataset",
@@ -212,10 +226,19 @@ def verify_timing(root):
     """Check raw evidence and independently derive a full-run estimate on CPU."""
     root = Path(root)
     report = json.loads((root / "report.json").read_text())
-    if report["schema"] != "corrected-timing-check-v1" or report["passed"] is not True:
+    if report["schema"] not in ("corrected-timing-check-v1", "corrected-timing-check-v2") or report["passed"] is not True:
         raise ValueError("a completed disposable timing check is required")
     if report["controls"]["batch_size"] != 1024 or set(report["counts"]) != {"5", "20"}:
         raise ValueError("timing must measure the fixed batch size and both endpoints")
+    if report["schema"] == "corrected-timing-check-v2":
+        if report["probe_training"] != {"learning_rate": .0001, "seed": 424245,
+                                        "updates": 7, "candidate_only": True}:
+            raise ValueError("timing must identify the approved single-rate candidate")
+        if (report["checkpoint_schedule"] != "initial-periodic-terminal-v1"
+                or report["numerical_timing_passed"] is not True or report["learning_health_passed"] is not True):
+            raise ValueError("new timing requires explicit schedule and learning qualification")
+        for row in report["counts"].values():
+            check_learning_evidence(row)
     checked_bytes = 0
     tick = time.perf_counter()
     for name, digest in report["files"].items():
@@ -248,7 +271,12 @@ def verify_timing(root):
                 or row["resume_verification_updates"] != 0 or row["cuda_reload_exact"] is not True
                 or row["common_cpu_scoring_passed"] is not True):
             raise ValueError("invalid raw timing or correctness evidence")
-        model, _ = load_model(root / f"m{k}.pt")
+        model, payload = load_model(root / f"m{k}.pt")
+        if report["schema"] == "corrected-timing-check-v2":
+            config = payload["training_configuration"]
+            if (config["seed"] != 424245 or config["updates"] != 7 or "epochs" in config
+                    or config["batch_size"] != 1024 or config["learning_rate"] != .0001):
+                raise ValueError("timing checkpoint provenance differs from actual updates")
         artifact = LabeledArtifact(root / f"m{k}-data")
         if (len(artifact.arrays["train"][0]) != 1024
                 or any(len(artifact.arrays[p][0]) != 2048 for p in ("validation_dense", "validation_sparse"))

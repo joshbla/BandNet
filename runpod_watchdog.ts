@@ -10,13 +10,16 @@ import { setTimeout as sleep } from 'node:timers/promises';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const API = 'https://api.runpod.io/v2';
-export const ALLOCATION_MS = 900_000;
+export const ALLOCATION_MS = 600_000;
 export const SHUTDOWN_RESERVE_MS = 60_000;
+export const RETRIEVAL_MS = 180_000;
+export const RETRIEVAL_SHUTDOWN_RESERVE_MS = 45_000;
 
 export type Receipt = {
   podId: string;
   createdAt: string;
   allocationRequestedAtMs: number;
+  retrievalRequestedAtMs?: number;
 };
 export type Pod = {
   id: string;
@@ -46,10 +49,15 @@ export function validateReceipt(value: unknown): Receipt {
   // Permit API second rounding, but never an unrelated/older pod receipt.
   const age = Date.parse(r.createdAt) - r.allocationRequestedAtMs;
   if (age < -1000 || age > ALLOCATION_MS) throw new Error('Creation time does not match this allocation');
+  if (r.retrievalRequestedAtMs !== undefined &&
+      (!Number.isSafeInteger(r.retrievalRequestedAtMs) || r.retrievalRequestedAtMs < Date.parse(r.createdAt))) {
+    throw new Error('Invalid separately approved retrieval request time');
+  }
   return r;
 }
 
 export function allocationStart(r: Receipt): number {
+  if (r.retrievalRequestedAtMs !== undefined) return r.retrievalRequestedAtMs;
   return Math.min(r.allocationRequestedAtMs, Date.parse(r.createdAt));
 }
 
@@ -69,10 +77,12 @@ export function confirmedStopped(p: Pod): boolean {
 export async function watch(r: Receipt, c: Controller): Promise<void> {
   validateReceipt(r);
   const start = allocationStart(r);
-  const stopAt = start + ALLOCATION_MS - SHUTDOWN_RESERVE_MS;
+  const limit = r.retrievalRequestedAtMs === undefined ? ALLOCATION_MS : RETRIEVAL_MS;
+  const reserve = r.retrievalRequestedAtMs === undefined ? SHUTDOWN_RESERVE_MS : RETRIEVAL_SHUTDOWN_RESERVE_MS;
+  const stopAt = start + limit - reserve;
   const record = (event: string, data: Record<string, unknown> = {}) => c.record({ event, elapsedMs: c.now() - start, ...data });
   let stopping = false;
-  record('armed', { podId: r.podId, stopAfterMs: stopAt - start, hardLimitMs: ALLOCATION_MS });
+  record('armed', { podId: r.podId, stopAfterMs: stopAt - start, hardLimitMs: limit });
   for (;;) {
     if (!stopping && (c.earlyStop() || c.now() >= stopAt)) {
       stopping = true;
@@ -94,7 +104,7 @@ export async function watch(r: Receipt, c: Controller): Promise<void> {
     }
     if (p.status === 'ERROR') stopping = true;
     if (stopping) {
-      if (c.now() >= start + ALLOCATION_MS) record('deadline-exceeded-unverified');
+      if (c.now() >= start + limit) record('deadline-exceeded-unverified');
       if (!p.locked && p.actions.includes('stop')) {
         try {
           await c.stopPod();
@@ -156,7 +166,9 @@ async function main(): Promise<void> {
   }
   const path = resolve(process.argv[3]);
   const receipt = loadReceipt(path);
-  const state = join(dirname(path), `watchdog-${receipt.podId}`);
+  const stateName = receipt.retrievalRequestedAtMs === undefined ? `watchdog-${receipt.podId}`
+    : `watchdog-${receipt.podId}-retrieval-${receipt.retrievalRequestedAtMs}`;
+  const state = join(dirname(path), stateName);
   if (mode === 'stop') {
     // Request early shutdown from the already running controller, with no credentials in argv.
     if (!existsSync(join(state, 'armed.json'))) throw new Error('Controller is not armed; stop this pod through the MCP immediately');

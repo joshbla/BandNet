@@ -425,9 +425,13 @@ def training_step(model, forward, optimizer, target, device):
     if not torch.isfinite(loss):
         raise ArithmeticError("nonfinite training loss")
     loss.backward()
+    any_current_gradient = False
     for parameter in model.parameters():
         if parameter.grad is None or not torch.isfinite(parameter.grad).all():
             raise ArithmeticError("missing or nonfinite gradient")
+        any_current_gradient = any_current_gradient or bool(torch.any(parameter.grad != 0))
+    if not any_current_gradient:
+        raise ArithmeticError("all current gradients are zero; refusing momentum-only update")
     optimizer.step()
     return loss.item()
 
@@ -546,6 +550,9 @@ def train_production(root, artifact, config, provenance, *, execution, execution
     Latest contains its own best state, so an interruption between separate files
     cannot pair an optimizer with a different best epoch. Uncommitted updates are
     replayed; their elapsed time is unknown and excluded from committed timing.
+    Full recovery images are saved initially, at the explicit step interval,
+    after terminal validation, and at the execution deadline. Intermediate
+    validation history and improvements become durable with the next image.
     """
     root = Path(root)
     device = checked_device(execution["device"])
@@ -610,6 +617,9 @@ def train_production(root, artifact, config, provenance, *, execution, execution
                "checkpoint_qualification": qualification}
     attempts.append(attempt)
     write_json(attempts_path, attempts)
+    # Embedded history and cursor are one committed state. The lightweight file
+    # may describe later, uncommitted validations from an interrupted attempt.
+    write_json(root / "history.json", state["history"])
     attempt_start = time.perf_counter()
     try:
         while state["epoch"] <= config["epochs"]:
@@ -652,7 +662,10 @@ def train_production(root, artifact, config, provenance, *, execution, execution
                 state["best"] = production_payload(model, artifact, config, provenance, epoch, score,
                                                    execution_id=execution_id)
             state.update(epoch=epoch + 1, next_row=0, loss_sum=0.0, epoch_training_seconds=0.0)
-            checkpoint()
+            # Keep every validation and selected snapshot, but only commit a full
+            # recovery image periodically and after the terminal validation.
+            if state["epoch"] > config["epochs"]:
+                checkpoint()
             write_json(root / "history.json", state["history"])
         _save_checkpoint(root / "best.pt", state["best"])
         model.load_state_dict(state["best"]["state_dict"])

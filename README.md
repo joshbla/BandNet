@@ -45,15 +45,33 @@ Without PyTorch the corrected learning tests are explicitly skipped.
 
 ## Full Corrected Production Experiment
 
-### Current Task: Disposable Timing Test
+### Current State: GPU Recheck Passed, Cleanup Complete
 
-The owner's immediate request is a small, automatically resource-tuned timing
-test and a checked estimate. The real experiment starts fresh later, only when
-the owner is ready and approves. The cross-machine continuation work below was
-an assistant over-interpretation; it remains implemented but is not the active
-task. Test weights/data are never reused to start production.
+The subsequent approved ten-minute GPU recheck passed at candidate `0.0001`, as
+did the on-pod independent audit. The bulk export hit its 150-second transfer
+timeout. The owner approved three-minute retrieval, but the restart was refused
+because the host had no free GPU. The owner then explicitly accepted incomplete
+M5 export and authorized deletion. Pod `sdovg9ufwm1nzb` and its 200 GB storage were
+deleted; live pod and network-volume inventories are empty. Full Mac checkpoint
+auditing was not completed; the successful on-pod audit and exported evidence
+remain retained with that limitation. The measured-rate projection is
+$24.84-$27.78, or $34.73 with the explicit margin, plus setup/export. See
+`../docs/THREE_BAND_RERUN_MAP.md`, Ten-Minute Candidate GPU Recheck.
 
-On an approved GPU allocation, use a container-disk software environment/cache
+The disposable H100 timing test and approved local learning/saving follow-up are
+complete. Work has stopped at the owner's requested boundary. Exactly 35 full-width
+local updates reproduced M5 saturation at Adam `0.001` and checked the single
+candidate `0.0001` across the timing seed, two fixed M5 production seeds and M20.
+All four candidate witnesses improved with varied predictions and live gradients;
+this does not establish production accuracy or GPU learning. The real experiment
+starts fresh only after owner approval. Test weights/data never start production.
+
+Production and production preflight still specify `0.001`. The timing-only check
+and auditor now explicitly qualify candidate `0.0001`; that passed short GPU
+qualification does not itself adopt a production protocol or authorize production.
+The cross-machine procedures below remain reference material, not the active task.
+
+For a future explicitly approved GPU check, use a container-disk software environment/cache
 and a credential-free `.env.local` with the documented controls. The timing mode
 replaces CPU/RAM reserve and thread settings with choices for the actual machine:
 
@@ -64,10 +82,19 @@ python verify_corrected_pilot.py --timing --run /workspace/artifacts/disposable-
 
 Use the Python executable from the frozen training environment. The first H100
 attempt failed before timing on excessive CUDA eigensolver scratch allocation.
-Evidence was exported and the pod/storage removed. A VRAM-bounded eigensolver
-workaround now passes local value/gradient checks, but still needs actual CUDA
-verification. There is **no valid full-run timing estimate yet**. Current checks:
-68 Python tests and eight independent stop-controller tests pass.
+Evidence was exported and the pod/storage removed. The VRAM-bounded eigensolver
+workaround has now passed actual H100 M5/M20 numerical, gradient, full-size update,
+reload and CPU-scoring checks. Independent timing audits passed on the pod and
+again on the Mac. The old schedule projected to 10.83-12.25 hours/$38-$43. The
+implemented lean schedule reduces recovery saves from 1,967 to 52 and projects
+to 6.81-8.17 hours/$23.97-$28.77 at those historical rates, or $35.96 with the
+explicit 25-percent margin, plus setup/export. This is a schedule-only estimate,
+not a measurement of the changed code, and still exceeds the owner's $11 ceiling.
+See `../docs/THREE_BAND_RERUN_MAP.md`, Bounded Learning Diagnosis And Lean Recovery
+Saving, for the diagnosis, source hashes, limitations and saved evidence.
+Both retry pods/storage were removed. Current verification: 76 Python tests pass,
+plus the affected regression after the final nonfinite-receipt refinement.
+The controller's eight prior passing tests were not rerun for this local stage.
 
 The fixed CUDA runner restores the recorded five-hidden-layer ReLU architecture
 (`5000,2500,5000,2500,5000`) with the adopted corrected contract: 1,500 scaled
@@ -85,8 +112,8 @@ each. The common 20,000-target M5 set is 10,000 dense plus 10,000 sparse, stored
 once with its own seed. All fits finish before any final population is scored.
 No pilot data or checkpoints are reused.
 
-**Paid launch requires owner approval.** The implementation passes local fixture
-checks; CUDA execution and full-size throughput still require the actual pod.
+**Paid launch requires owner approval.** CUDA execution and full-size throughput
+were measured on the disposable H100; production learning and budget remain open.
 Set `BANDNET_PRODUCTION_*` and the actual pod's `BANDNET_GENERATION_*` reserves
 in local `.env.local`. There is no CPU substitution when CUDA is unavailable.
 Use the locked environment on a host compatible with its CUDA 13 runtime.
@@ -100,7 +127,10 @@ uv run --frozen --extra training python corrected_pilot.py --gpu-preflight --out
 
 Preflight checks M5/M20 values, gradients, full-architecture optimizer updates,
 CPU-scored predictions, CUDA/CPU checkpoint reload, resources and native CPU
-thread control. It measures two warmup and five timed updates per endpoint with
+thread control. New preflight v3 also requires learning progress, varied predictions
+and live gradients; timing v2 reports the same learning evidence separately from
+numerical/timing correctness. Failed learning stops before large checkpoint export
+or the next endpoint, retaining diagnostic observations. It measures two warmup and five timed updates per endpoint with
 batch size 1,024, full validation and checkpoint-writing/integrity-hashing overhead.
 It also verifies serialized Adam continuation with two additional updates per
 endpoint, separately from the throughput samples. This is not
@@ -119,9 +149,14 @@ The second command is for an interrupted run, not a second experiment. It checks
 the frozen scientific source/configuration and artifact identities against a
 successful preflight for the **current** machine. A replacement GPU, runtime,
 region or filesystem path does not change the scientific protocol.
-Training persists Adam state, deterministic row cursor and best-validation
-weights every configured interval and epoch boundary. Uncommitted work may be
-replayed; its unknown duration is not filled in. `MAX_SECONDS` is a cooperative
+Training persists Adam state, deterministic row cursor and best-validation weights
+initially, at the explicit interval, after terminal validation, and on deadline.
+The approved cadence is `BANDNET_PRODUCTION_CHECKPOINT_STEPS=5000` in `.env.local`.
+Every epoch still validates and selects best weights in memory. A crash can replay
+roughly six-to-nine minutes at prior rates, including best improvements not yet
+saved. The final recovery save pairs current weights with current Adam, keeping
+selected-best weights separate. Lightweight history is reconciled to the durable
+cursor on reopening. Uncommitted duration is not filled in. `MAX_SECONDS` is a cooperative
 per-invocation limit, **not a RunPod billing stop**. An external pod stop deadline
 must be armed for the approved budget. A changed GPU/driver/runtime or operational
 configuration requires a fresh preflight; its successful report is admitted and
@@ -196,10 +231,10 @@ remain required on rented hardware.
 
 ### Initial RunPod Allocation And Independent Shutdown
 
-The initial allocation has an owner-set **900-second maximum**, counted from the
+The latest disposable allocation has an owner-set **600-second maximum**, counted from the
 allocation request, including provisioning, setup, checks, evidence and shutdown.
-Use at most **600 seconds** for the inner production-runner limit and reduce it
-when setup leaves less time. The initial allocation and temporary storage count
+Use at most **180 seconds** for the inner timing-runner limit and reduce it
+when setup leaves less time for audit/export. The allocation and temporary storage count
 toward the same **$11 total ceiling**. Neither this procedure nor the example
 configuration authorizes paid creation.
 
@@ -238,7 +273,7 @@ unattended during this handoff. Authentication and local controller checks must
 be complete before requesting a paid allocation.
 
 The detached controller uses macOS `caffeinate -is` to inhibit idle sleep while
-it runs. It sends the stop request at **840 seconds**, leaving 60 seconds for
+it runs. It sends the normal check's stop request at **540 seconds**, leaving 60 seconds for
 provider shutdown, and retries API failures. A monotonic clock prevents wall-clock
 rollback from extending the running deadline. On success or check/setup failure,
 request earlier shutdown:
@@ -246,6 +281,13 @@ request earlier shutdown:
 ```bash
 node runpod_watchdog.ts stop artifacts/runpod-check-receipt.json
 ```
+
+A separately approved retrieval-only restart uses the original creation receipt
+plus an explicit `retrievalRequestedAtMs`, captured before its start request. It
+retains original pod identity but has its own **180-second** allowance, stop at
+**135 seconds**, and separate controller directory. The receipt is never created
+to extend a running check automatically. The nine controller tests cover both
+allowances and reject invalid retrieval timestamps and changed pod identity.
 
 The controller requires a fresh GET showing `EXITED` or `TERMINATED`, null runtime
 and no remaining stop action before writing `stopped.json`. The real H100 stop
@@ -259,7 +301,7 @@ mount and verify exported copies before deleting storage.
 This is a local, best-effort controller, not a provider-guaranteed spending cap.
 Mac power loss, loss of connectivity or a provider outage can prevent timely
 shutdown. Keep the Mac powered and online. If shutdown remains unverified at
-900 seconds it logs the missed deadline and continues retrying; it does not
+600 seconds it logs the missed deadline and continues retrying; it does not
 silently extend training or declare success. Eight simulated controller tests
 pass; local authentication, detached arming, direct SSH and authenticated early
 stop worked on the H100. The corrected lifecycle/runtime verification rule is

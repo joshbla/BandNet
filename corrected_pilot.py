@@ -31,7 +31,7 @@ from triatomic_learning import (BandInverse, ProductionBandInverse, Differentiab
                                 synchronize, training_step, train_production, _save_checkpoint,
                                 save_resume_checkpoint, read_resume_checkpoint, qualify_checkpoint_model,
                                 evaluate_designs, evaluate_population, predict,
-                                summarize_errors, train_model)
+                                summarize_errors, train_model, checkpoint_probe)
 
 
 ROOT = Path(__file__).resolve().parent
@@ -368,7 +368,218 @@ def tune_training_threads(model, forward, optimizer, target, device, available, 
     optimizer.state.clear()
     return {"selected_threads": winner["threads"], "candidates": candidates, "measurements": measured,
             "elapsed_seconds": time.perf_counter() - started, "search_complete": len(measured) == len(candidates),
-            "selection": "fastest measured transfer-inclusive full-batch update; bounded search, not a global optimum"}
+             "selection": "fastest measured transfer-inclusive full-batch update; bounded search, not a global optimum"}
+
+
+def learning_health(states, *, minimum_relative_improvement=0.001):
+    """A bounded learning witness, separate from numerical/timing qualification."""
+    if not states:
+        raise ValueError("learning health requires observed states")
+    first, last = states[0], states[-1]
+    reasons = []
+    if not all(row["finite"] and np.isfinite(row["training_loss"]) and np.isfinite(row["validation_loss"])
+               and np.isfinite(row["predictions"]).all() for row in states):
+        reasons.append("nonfinite learning witness")
+    if any(count == 0 for count in last["sigmoid_derivative_nonzero_by_output"]):
+        reasons.append("entire output column has zero sigmoid derivative")
+    if last["unique_prediction_rows"] < 2 or len(np.unique(last["predictions"], axis=0)) < 2:
+        reasons.append("varied inputs have identical predictions")
+    if (not last["useful_current_gradients"] or not last["gradients"]
+            or not all(g["present"] and g["finite"] and g["norm"] is not None
+                       and np.isfinite(g["norm"]) and g["norm"] > 0 and g["nonzero"] > 0
+                       for g in last["gradients"])):
+        reasons.append("current gradients are missing, nonfinite or entirely zero in a parameter tensor")
+    progress = {}
+    for key in ("training_loss", "validation_loss"):
+        initial, final = first[key], last[key]
+        improved = np.isfinite(initial) and np.isfinite(final) and initial > 0 and final <= initial * (1 - minimum_relative_improvement)
+        progress[key] = {"initial": initial, "final": final, "improved": bool(improved)}
+        if not improved:
+            reasons.append(f"no meaningful bounded-window {key} improvement")
+    return {"passed": not reasons, "reasons": reasons, "progress": progress,
+            "minimum_relative_improvement": minimum_relative_improvement,
+            "scope": "fixed training/validation witness only; not generalization or GPU qualification"}
+
+
+def check_learning_evidence(row):
+    """Recompute the health decision from observations, never trust a pass flag."""
+    try:
+        observations = row["learning_observations"]
+        states = [observations["initial"], observations["final"]]
+        for state in states:
+            live = np.asarray(state["sigmoid_derivative_nonzero_by_output"])
+            if live.ndim != 1 or not len(live) or np.any(live < 0) or np.any(live > row["batch_size"]):
+                raise ValueError("invalid derivative counts")
+        actual = learning_health(states)
+        if not actual["passed"] or row["learning_health"] != actual:
+            raise ValueError("health decision differs from observations")
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError(f"invalid learning health evidence: {error}") from error
+    return actual
+
+
+def learning_observation(model, forward, target, validation, device, *, gradients):
+    """Observe the full logical training batch and fixed validation witnesses."""
+    tensor = torch.as_tensor(target, dtype=torch.float64, device=device)
+    layers, captured = [], {}
+
+    def capture(name, final):
+        def hook(module, inputs, output):
+            value = output.detach()
+            layers.append({"layer": name, "min": value.min().item(), "max": value.max().item(),
+                           "rms": value.square().mean().sqrt().item(),
+                           "positive_fraction": (value > 0).double().mean().item()})
+            if final:
+                captured["raw"] = value
+        return hook
+
+    linear = [(name, module) for name, module in model.network.named_modules() if isinstance(module, torch.nn.Linear)]
+    handles = [module.register_forward_hook(capture(name, index == len(linear) - 1))
+               for index, (name, module) in enumerate(linear)]
+    model.zero_grad(set_to_none=True)
+    try:
+        with torch.set_grad_enabled(gradients):
+            predictions = model(tensor)
+            loss = band_loss(tensor, forward(predictions))
+            if gradients:
+                loss.backward()
+    finally:
+        for handle in handles:
+            handle.remove()
+    raw = captured["raw"]
+    unit = raw.sigmoid()
+    derivative = unit * (1 - unit)
+    gradient_rows = []
+    for name, parameter in model.named_parameters():
+        grad = parameter.grad
+        gradient_rows.append({"parameter": name, "present": grad is not None,
+                              "finite": bool(grad is not None and torch.isfinite(grad).all()),
+                              "norm": None if grad is None else grad.norm().item(),
+                              "nonzero": 0 if grad is None else int(torch.count_nonzero(grad))})
+    with torch.no_grad():
+        witness = torch.as_tensor(validation, dtype=torch.float64, device=device)
+        validation_predictions = model(witness)
+        validation_loss = band_loss(witness, forward(validation_predictions)).item()
+    chosen = torch.linspace(0, len(predictions) - 1, min(16, len(predictions)), device=device).long()
+    finite = bool(torch.isfinite(raw).all() and torch.isfinite(predictions).all()
+                  and torch.isfinite(loss) and np.isfinite(validation_loss))
+    return {"finite": finite, "training_loss": loss.item(), "validation_loss": validation_loss,
+            "layers": layers, "logit_min_by_output": raw.amin(0).tolist(),
+            "logit_max_by_output": raw.amax(0).tolist(),
+            "sigmoid_zero_by_output": (unit == 0).sum(0).tolist(),
+            "sigmoid_one_by_output": (unit == 1).sum(0).tolist(),
+            "sigmoid_derivative_nonzero_by_output": (derivative != 0).sum(0).tolist(),
+            "sigmoid_derivative_below_1e12_by_output": (derivative < 1e-12).sum(0).tolist(),
+            "sigmoid_derivative_min_by_output": derivative.amin(0).tolist(),
+            "sigmoid_derivative_max_by_output": derivative.amax(0).tolist(),
+            "unique_prediction_rows": len(torch.unique(predictions.detach(), dim=0)),
+            "prediction_rows": chosen.tolist(), "predictions": predictions.detach()[chosen].tolist(),
+            "validation_predictions": validation_predictions.tolist(),
+            "gradients": gradient_rows,
+            "useful_current_gradients": all(row["finite"] and row["nonzero"] > 0 for row in gradient_rows)}
+
+
+def bounded_learning_diagnostic(output):
+    """Owner-approved local cap: five fixed trials, at most seven updates each."""
+    if output.exists() or not output.parent.is_dir():
+        raise ValueError("diagnostic output must be new with an existing parent")
+    _, controls = settings(ROOT / ".env.local")
+    torch.set_num_threads(controls["torch_threads"])
+    torch.use_deterministic_algorithms(True)
+    retained = ROOT / "artifacts/runpod-timing-retry-us/remote/disposable-timing"
+    output.mkdir()
+    (output / "sources").mkdir()
+    sources = {}
+    for name in SOURCE_FILES:
+        shutil.copyfile(ROOT / name, output / "sources" / name)
+        sources[name] = sha256_file(output / "sources" / name)
+    report = {"schema": "bounded-learning-diagnostic-v1", "device": "cpu", "torch": str(torch.__version__),
+              "numpy": np.__version__, "torch_threads": controls["torch_threads"], "source_sha256": sources,
+              "maximum_updates": 35, "actual_updates": 0, "trials": [], "completed": False,
+              "scope": "fixed retained fixtures; no production-rate adoption, GPU or generalization claim",
+              "retained_report_sha256": sha256_file(retained / "report.json")}
+
+    def fixture(interactions):
+        artifact = LabeledArtifact(retained / f"m{interactions}-data")
+        target = np.array(artifact.arrays["train"][1], copy=True)
+        if len(target) != 1024 or not np.array_equal(artifact.grid, GRID):
+            raise ValueError("diagnostic requires retained full logical batch and native grid")
+        rows = np.linspace(0, 2047, 16, dtype=int)
+        validation = np.concatenate([artifact.arrays[population][1][rows]
+                                     for population in ("validation_dense", "validation_sparse")])
+        return artifact, target, validation
+
+    def trial(interactions, seed, rate, name, *, baseline=False):
+        artifact, target, validation = fixture(interactions)
+        torch.manual_seed(seed)
+        model = ProductionBandInverse(interactions, np.sqrt(np.mean(target**2, axis=(0, 1))))
+        forward = DifferentiableTriatomic(GRID, interactions)
+        optimizer = torch.optim.Adam(model.parameters(), lr=rate, foreach=False)
+        row = {"name": name, "interactions": interactions, "seed": seed, "learning_rate": rate,
+               "batch_size": 1024, "input_scale": model.input_scale.tolist(),
+               "dataset_manifest_sha256": sha256_file(artifact.root / "manifest.json"),
+               "validation_rows_per_population": np.linspace(0, 2047, 16, dtype=int).tolist(),
+               "states": [], "parameter_movement": []}
+        report["trials"].append(row)
+        samples = []
+        for step in range(8):
+            observation = learning_observation(model, forward, target, validation, "cpu", gradients=True)
+            observation["updates_completed"] = step
+            row["states"].append(observation)
+            write_json(output / "report.json", report)
+            print(json.dumps({"trial": name, "updates": step, "loss": observation["training_loss"],
+                              "validation_loss": observation["validation_loss"],
+                              "live_derivatives": observation["sigmoid_derivative_nonzero_by_output"]}), flush=True)
+            collapsed = any(count == 0 for count in observation["sigmoid_derivative_nonzero_by_output"])
+            if (step == 7 or not observation["finite"]
+                    or any(not gradient["finite"] for gradient in observation["gradients"])
+                    or (collapsed and not baseline)):
+                break
+            # Sample actual movement, not Adam moments; avoid a full weight copy per step.
+            samples = []
+            for key, parameter in model.named_parameters():
+                indices = torch.linspace(0, parameter.numel() - 1, min(256, parameter.numel())).long()
+                samples.append((key, parameter, indices, parameter.detach().flatten()[indices].clone()))
+            optimizer.step()
+            report["actual_updates"] += 1
+            row["parameter_movement"].append({"update": step + 1,
+                "scope": "up to 256 uniformly spaced entries per tensor; actual sampled deltas, not full norms",
+                "parameters": [{"parameter": key, "samples": len(indices),
+                                "delta_norm": (parameter.detach().flatten()[indices] - before).norm().item(),
+                                "max_abs_delta": (parameter.detach().flatten()[indices] - before).abs().max().item()}
+                               for key, parameter, indices, before in samples]})
+        row["health"] = learning_health(row["states"])
+        write_json(output / "report.json", report)
+        del model, optimizer, forward, samples
+        gc.collect()
+        return row
+
+    artifact, target, validation = fixture(5)
+    negative, _ = load_model(retained / "m5.pt")
+    observation = learning_observation(negative, DifferentiableTriatomic(GRID, 5), target, validation, "cpu", gradients=True)
+    report["negative_control"] = {"checkpoint_sha256": sha256_file(retained / "m5.pt"),
+                                  "observation": observation, "health": learning_health([observation])}
+    del negative, artifact, target, validation, _
+    gc.collect()
+    original = trial(5, 424245, 0.001, "m5-original", baseline=True)
+    overshoot = any(any(count == 0 for count in state["sigmoid_derivative_nonzero_by_output"])
+                    for state in original["states"][1:])
+    report["baseline_overshoot_confirmed"] = overshoot
+    if overshoot:
+        candidate = trial(5, 424245, 0.0001, "m5-candidate")
+        if candidate["health"]["passed"]:
+            for interactions, seed, name in ((5, 271829, "m5-main-seed"), (5, 314160, "m5-study-seed"),
+                                              (20, 424245, "m20-control")):
+                result = trial(interactions, seed, 0.0001, name)
+                if not result["health"]["passed"]:
+                    report["stopped_after_failed_trial"] = name
+                    break
+        else:
+            report["stopped_after_failed_trial"] = "m5-candidate"
+    report["completed"] = True
+    write_json(output / "report.json", report)
+    print(json.dumps({"output": str(output), "actual_updates": report["actual_updates"],
+                      "trials": [{"name": row["name"], "health": row["health"]} for row in report["trials"]]}), flush=True)
 
 
 def production_protocol(controls):
@@ -408,9 +619,13 @@ def production_provenance(source):
     return {"source_sha256": dict(source["source_sha256"])}
 
 
-def check_preflight_evidence(report):
-    if "schema" not in report or report["schema"] != "corrected-gpu-preflight-v2" or report["passed"] is not True:
+def check_preflight_evidence(report, *, historical=False):
+    allowed = ("corrected-gpu-preflight-v2", "corrected-gpu-preflight-v3") if historical else ("corrected-gpu-preflight-v3",)
+    if "schema" not in report or report["schema"] not in allowed or report["passed"] is not True:
         raise ValueError("successful portable GPU preflight required")
+    if report["schema"] == "corrected-gpu-preflight-v3":
+        if report["numerical_timing_passed"] is not True or report["learning_health_passed"] is not True:
+            raise ValueError("successful numerical/timing and learning qualification required")
     if set(report["counts"]) != {"5", "20"}:
         raise ValueError("preflight must qualify both M5 and M20")
     for row in report["counts"].values():
@@ -423,6 +638,8 @@ def check_preflight_evidence(report):
                 or row["warmup_updates"] != 2 or row["measured_updates"] != 5
                 or not np.isfinite(row["median_step_seconds"]) or row["median_step_seconds"] <= 0):
             raise ValueError("incomplete numerical or timing preflight evidence")
+        if report["schema"] == "corrected-gpu-preflight-v3":
+            check_learning_evidence(row)
 
 
 def validate_execution_history(root, protocol, attempts):
@@ -439,7 +656,7 @@ def validate_execution_history(root, protocol, attempts):
         if sha256_file(path) != attempt["preflight_report_sha256"]:
             raise ValueError("archived preflight checksum mismatch")
         report = json.loads(path.read_text())
-        check_preflight_evidence(report)
+        check_preflight_evidence(report, historical=True)
         if production_provenance(report["provenance"]) != protocol["provenance"]:
             raise ValueError("execution source differs from the experiment")
         for key, value in production_protocol(report["controls"]).items():
@@ -469,6 +686,23 @@ def retain_sources(output, provenance):
             raise ValueError("source changed while taking snapshot")
 
 
+def measure_preflight_checkpoints(output, model, optimizer, artifact, config, provenance, device):
+    """Disjoint selected-save preparation/write and complete recovery-wrapper timing."""
+    tick = time.perf_counter()
+    payload = production_payload(model, artifact, config, provenance, 0, None)
+    preparation = time.perf_counter() - tick
+    tick = time.perf_counter()
+    _save_checkpoint(output / f"m{model.interactions}.pt", payload)
+    selected = time.perf_counter() - tick
+    tick = time.perf_counter()
+    synchronize(device)
+    save_resume_checkpoint(output / f"m{model.interactions}-resume-probe.pt",
+                           {"current": model.state_dict(), "optimizer": optimizer.state_dict(), "best": payload,
+                            "reload_probe": checkpoint_probe(model, artifact)})
+    recovery = time.perf_counter() - tick
+    return payload, preparation, selected, recovery
+
+
 def gpu_preflight(output, *, timing_only=False):
     """Bounded numerical and full-architecture throughput checks, not a fit search."""
     started = time.monotonic()
@@ -492,12 +726,19 @@ def gpu_preflight(output, *, timing_only=False):
     provenance = source_identity()
     output.mkdir()
     retain_sources(output, provenance)
-    report = {"schema": "corrected-timing-check-v1" if timing_only else "corrected-gpu-preflight-v2",
-              "passed": False, "provenance": provenance, "hardware": hardware,
+    report = {"schema": "corrected-timing-check-v2" if timing_only else "corrected-gpu-preflight-v3",
+               "passed": False, "provenance": provenance, "hardware": hardware,
+               "checkpoint_schedule": "initial-periodic-terminal-v1",
+               "numerical_timing_passed": False, "learning_health_passed": False,
               "automatic_resources": automatic, "disposable_timing_test": timing_only,
               "controls": controls, "generation_policy": policy.__dict__,
               "resources": detect_resources().as_dict(), "counts": {},
-              "scope": "M5/M20 numerical checks and full-size batch updates; no accuracy/sizing campaign"}
+               "scope": "M5/M20 numerical checks and full-size batch updates; no accuracy/sizing campaign"}
+    # The approved disposable recheck tests one candidate; it does not adopt a
+    # different scientific learning rate for the fresh production experiment.
+    probe_rate = 0.0001 if timing_only else production_protocol(controls)["fits"][0]["training"]["learning_rate"]
+    report["probe_training"] = {"learning_rate": probe_rate, "seed": 424245,
+                                "updates": 7, "candidate_only": timing_only}
     write_json(output / "report.json", report)
     # Use a separate stream from every development/production population.
     for interactions in (5, 20):
@@ -520,19 +761,68 @@ def gpu_preflight(output, *, timing_only=False):
         torch.manual_seed(424245)
         model = ProductionBandInverse(interactions, np.sqrt(np.mean(target**2, axis=(0, 1)))).to(device)
         forward = DifferentiableTriatomic(GRID, interactions).to(device)
-        optimizer = torch.optim.Adam(model.parameters(), lr=0.001, foreach=False)
+        optimizer = torch.optim.Adam(model.parameters(), lr=probe_rate, foreach=False)
+        validation_witness = np.concatenate([
+            artifact.arrays[population][1][np.linspace(0, len(artifact.arrays[population][1]) - 1,
+                                                     min(16, len(artifact.arrays[population][1])), dtype=int)]
+            for population in ("validation_dense", "validation_sparse")])
+        initial_learning = learning_observation(model, forward, target, validation_witness, device, gradients=True)
+
+        def preserve_learning_failure(stage, error, final=None):
+            failure = {"stage": stage, "error": f"{type(error).__name__}: {error}",
+                       "numerical": numerical, "batch_size": controls["batch_size"],
+                       "learning_observations": {"initial": initial_learning},
+                       "checkpoint_export_started": False}
+            if final is None:
+                try:
+                    final = learning_observation(model, forward, target, validation_witness, device, gradients=True)
+                except ArithmeticError as observation_error:
+                    failure["final_observation_error"] = str(observation_error)
+            if final is not None:
+                failure["learning_observations"]["final"] = final
+                failure["learning_health"] = learning_health([initial_learning, final])
+                failure["learning_health"]["passed"] = False
+                failure["learning_health"]["reasons"].append(f"training execution failed at {stage}")
+            report["counts"][str(interactions)] = failure
+            report["failure"] = {"interactions": interactions, "stage": stage, "error": str(error)}
+
+            def failure_json(value):
+                # Preserve nonfinite evidence as tags, never repaired numeric results.
+                # This encoding is failure-only and cannot qualify as passing health.
+                if isinstance(value, (float, np.floating)) and not np.isfinite(value):
+                    if np.isnan(value):
+                        return {"nonfinite": "nan"}
+                    return {"nonfinite": "positive_infinity" if value > 0 else "negative_infinity"}
+                if isinstance(value, dict):
+                    return {key: failure_json(item) for key, item in value.items()}
+                if isinstance(value, (list, tuple)):
+                    return [failure_json(item) for item in value]
+                return value
+
+            write_json(output / "report.json", failure_json(report))
+
         if timing_only and interactions == 5:
             budget_check()
             tuning_limit = min(policy.tuning_seconds, controls["max_seconds"] - (time.monotonic() - started))
-            automatic["training_threads"] = tune_training_threads(
-                model, forward, optimizer, target, device, automatic["available_threads"], tuning_limit)
+            try:
+                automatic["training_threads"] = tune_training_threads(
+                    model, forward, optimizer, target, device, automatic["available_threads"], tuning_limit)
+            except ArithmeticError as error:
+                preserve_learning_failure("thread_tuning", error)
+                raise
             controls["torch_threads"] = automatic["training_threads"]["selected_threads"]
             update_local_settings(ROOT / ".env.local", {"BANDNET_PRODUCTION_TORCH_THREADS": controls["torch_threads"]})
+        def observed_update(batch, stage):
+            try:
+                return training_step(model, forward, optimizer, batch, device)
+            except ArithmeticError as error:
+                preserve_learning_failure(stage, error)
+                raise
         torch.cuda.reset_peak_memory_stats(device)
         torch.cuda.empty_cache()
         for _ in range(2):
             budget_check()
-            training_step(model, forward, optimizer, target, device)
+            observed_update(target, "warmup")
         durations, losses = [], []
         for _ in range(5):
             budget_check()
@@ -541,22 +831,22 @@ def gpu_preflight(output, *, timing_only=False):
             # Include the same shuffled mmap read and transfer used by production.
             order = np.random.default_rng(424246).permutation(len(target))
             batch = np.array(artifact.arrays["train"][1][order], copy=True)
-            losses.append(training_step(model, forward, optimizer, batch, device))
+            losses.append(observed_update(batch, "timed_update"))
             synchronize(device)
             durations.append(time.perf_counter() - tick)
-        training_config = dict(production_protocol(controls)["fits"][0]["training"])
+        final_learning = learning_observation(model, forward, target, validation_witness, device, gradients=True)
+        health = learning_health([initial_learning, final_learning])
+        if not health["passed"]:
+            error = ArithmeticError("bounded learning health failed; observations retained before checkpoint/export")
+            preserve_learning_failure("learning_health", error, final_learning)
+            raise error
+        training_config = {"architecture": "original-five-relu-corrected-io-v1",
+                           "batch_size": controls["batch_size"], "learning_rate": probe_rate,
+                           "seed": 424245, "updates": 7, "scope": "disposable-timing-or-preflight"}
         checkpoint = output / f"m{interactions}.pt"
         budget_check()
-        tick = time.perf_counter()
-        payload = production_payload(model, artifact, training_config, provenance, 0, None)
-        payload_prepare_seconds = time.perf_counter() - tick
-        _save_checkpoint(checkpoint, payload)
-        save_seconds = time.perf_counter() - tick
-        tick = time.perf_counter()
-        save_resume_checkpoint(output / f"m{interactions}-resume-probe.pt",
-                               {"current": model.state_dict(), "optimizer": optimizer.state_dict(), "best": payload,
-                                "reload_probe": payload["reload_probe"]})
-        resume_save_seconds = time.perf_counter() - tick
+        payload, payload_prepare_seconds, save_seconds, resume_save_seconds = measure_preflight_checkpoints(
+            output, model, optimizer, artifact, training_config, provenance, device)
         tick = time.perf_counter()
         for population in ("validation_dense", "validation_sparse"):
             budget_check()
@@ -585,7 +875,7 @@ def gpu_preflight(output, *, timing_only=False):
             resume_state = read_resume_checkpoint(output / f"m{interactions}-resume-probe.pt")
             resumed = ProductionBandInverse(interactions, payload["input_scale"]).to(device)
             resumed.load_state_dict(resume_state["current"])
-            resumed_optimizer = torch.optim.Adam(resumed.parameters(), lr=0.001, foreach=False)
+            resumed_optimizer = torch.optim.Adam(resumed.parameters(), lr=probe_rate, foreach=False)
             resumed_optimizer.load_state_dict(resume_state["optimizer"])
             original_loss = training_step(model, forward, optimizer, target, device)
             budget_check()
@@ -606,6 +896,9 @@ def gpu_preflight(output, *, timing_only=False):
                "peak_cuda_allocated_bytes": torch.cuda.max_memory_allocated(device),
                "peak_cuda_reserved_bytes": torch.cuda.max_memory_reserved(device),
                "checkpoint_write_seconds": save_seconds, "checkpoint_sha256": sha256_file(checkpoint),
+               "learning_health": health,
+               "learning_observations": {"initial": initial_learning, "final": final_learning},
+               "checkpoint_timing_scope": "selected serialization only; payload preparation separate; recovery includes fresh probe preparation and integrity hash",
                "best_payload_prepare_seconds": payload_prepare_seconds,
                "reload_and_scoring_check_seconds": reload_check_seconds,
                "resume_checkpoint_write_seconds": resume_save_seconds,
@@ -630,7 +923,9 @@ def gpu_preflight(output, *, timing_only=False):
     median = max(row["median_step_seconds"] for row in report["counts"].values())
     budget_check()
     steps = 5 * ((2500000 + 1023) // 1024) + 16 * 100 * ((100000 + 1023) // 1024)
-    report.update(passed=True, elapsed_seconds=time.monotonic() - started,
+    healthy = all(row["learning_health"]["passed"] for row in report["counts"].values())
+    report.update(passed=healthy, numerical_timing_passed=True, learning_health_passed=healthy,
+                  elapsed_seconds=time.monotonic() - started,
                   optimizer_steps_in_full_matrix=steps,
                   training_only_projection_seconds=steps * median,
                   projection_scope="endpoint median extrapolation only; excludes validation, checkpoints, generation, evaluation, auditing and interruptions",
@@ -638,8 +933,10 @@ def gpu_preflight(output, *, timing_only=False):
     report["files"] = {str(path.relative_to(output)): sha256_file(path)
                        for path in sorted(output.rglob("*")) if path.is_file() and path.name != "report.json"}
     write_json(output / "report.json", report)
-    print(json.dumps({"passed": True, "report": str(output / "report.json"),
-                      "training_only_projection_seconds": report["training_only_projection_seconds"]}), flush=True)
+    print(json.dumps({"passed": healthy, "report": str(output / "report.json"),
+                       "training_only_projection_seconds": report["training_only_projection_seconds"]}), flush=True)
+    if not healthy:
+        raise RuntimeError("numerical/timing checks completed but bounded learning health failed; evidence retained")
 
 
 def production_run(output, preflight_root, *, resume=False):
@@ -808,11 +1105,15 @@ def main():
     modes.add_argument("--gpu-preflight", action="store_true", help="required actual-GPU checks and full-batch throughput")
     modes.add_argument("--timing-check", action="store_true", help="disposable automatic-resource timing test; never a production checkpoint")
     modes.add_argument("--production", action="store_true", help="fixed full-size CUDA matrix; paid launch requires owner approval")
+    modes.add_argument("--bounded-learning-diagnostic", action="store_true", help="approved local retained-fixture diagnostic, at most 35 updates")
     parser.add_argument("--preflight", type=Path, help="successful GPU preflight artifact required by production")
     parser.add_argument("--resume", action="store_true", help="resume the same experiment on a newly qualified compatible machine")
     args = parser.parse_args()
     if (args.resume or args.preflight is not None) and not args.production:
         parser.error("--resume and --preflight are production-only")
+    if args.bounded_learning_diagnostic:
+        bounded_learning_diagnostic(args.output)
+        return
     if args.production:
         if args.preflight is None:
             parser.error("--production requires --preflight")

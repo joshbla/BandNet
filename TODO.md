@@ -3,15 +3,20 @@
 The canonical cross-repository queue is `../docs/TODO.md`. Detailed experiment
 evidence and the adopted contract live in `../docs/THREE_BAND_RERUN_MAP.md`.
 
-The current task is a disposable resource-aware timing check and independently
-checked estimate, then one fresh production run later when the owner is ready.
-Cross-machine continuation was an assistant over-interpretation; leave its code
-alone rather than expanding that work. The H100 test failed before timing on an
-excessive CUDA eigensolver scratch allocation. Its pod/storage were removed after
-verified evidence export. A local bounded-call fix preserves values/gradients;
-68 Python tests and eight controller tests pass. Actual CUDA verification of the
-fix and the timing estimate remain open. Use container disk for software and the
-corrected shutdown lifecycle/runtime check. Track next allocation and budget
-decisions in the canonical queue; do not repeat local sizing.
-The owner wants the original full-size three-band experiment rerun with the
-adopted corrections, not the small pilot configuration or more sizing trials.
+Await production direction. The lower-rate GPU check and on-pod audit passed.
+After incomplete export and a capacity-blocked retrieval attempt, the owner
+accepted the missing disposable M5 checkpoint evidence and authorized deletion.
+Pod/storage cleanup and empty inventories are verified. The permanent local-audit
+limitation is recorded; no recovery work remains.
+
+Outstanding decisions and actions are owned by the canonical queue: whether to
+adopt GPU-qualified candidate Adam `0.0001`, reconcile final
+check billing and resolve the full-run budget. Timing-only now uses `0.0001`;
+production/preflight remain at `0.001`. The 5,000-update recovery cadence is
+verified, but the new measured-rate estimate still exceeds $11.
+
+Code and documentation changes await review/publication permission. All 76 Python
+tests pass; nine shutdown-controller tests cover the separate 600-second check
+and 180-second retrieval allowances.
+Production remains the fixed full-size fresh experiment after approval.
+Cross-machine continuation and further sizing/model searches are outside this work.

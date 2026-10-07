@@ -4,6 +4,7 @@ import io
 import json
 import tempfile
 import unittest
+import copy
 from dataclasses import replace
 from contextlib import redirect_stdout
 from types import SimpleNamespace
@@ -25,13 +26,16 @@ HAS_TORCH = importlib.util.find_spec("torch") is not None
 if HAS_TORCH:
     import torch
     from corrected_pilot import (settings, production_protocol, production_settings, production_run,
-                                 production_provenance, check_preflight_evidence, gpu_preflight, configure_machine_resources)
+                                 production_provenance, check_preflight_evidence, gpu_preflight, configure_machine_resources,
+                                 learning_health, learning_observation, check_learning_evidence, tune_training_threads,
+                                 measure_preflight_checkpoints)
     from corrected_inference import infer_files
     from verify_corrected_pilot import verify_production, timing_workload, timing_projection, verify_timing
     from triatomic_learning import (BandInverse, DifferentiableTriatomic, band_errors, band_loss,
                                     evaluate_designs, evaluate_population, load_model, predict, train_model,
                                     ProductionBandInverse, checked_device, compact_evaluation, train_production,
-                                    read_resume_checkpoint, qualify_checkpoint_model, bounded_eigvalsh, cuda_eigen_call_limit)
+                                    read_resume_checkpoint, qualify_checkpoint_model, bounded_eigvalsh, cuda_eigen_call_limit,
+                                    save_resume_checkpoint, training_step)
 
 
 def fixture_plan(chunk=7):
@@ -65,11 +69,23 @@ def fixture_preflight(root, source, hardware, controls, policy):
            "cpu_reload_prediction_tolerance": {"rtol": 1e-10, "atol": 1e-10},
            "batch_size": controls["batch_size"], "warmup_updates": 2,
            "measured_updates": 5, "median_step_seconds": 1}
-    report = {"schema": "corrected-gpu-preflight-v2", "passed": True, "provenance": source,
+    row.update(fixture_learning_evidence())
+    report = {"schema": "corrected-gpu-preflight-v3", "passed": True, "provenance": source,
+               "numerical_timing_passed": True, "learning_health_passed": True,
               "hardware": hardware, "controls": controls, "generation_policy": policy.__dict__,
               "counts": {"5": row, "20": row},
               "files": {probe.name: hashlib.sha256(probe.read_bytes()).hexdigest()}}
     (root / "report.json").write_text(json.dumps(report))
+
+
+def fixture_learning_evidence():
+    initial = {"finite": True, "training_loss": 1., "validation_loss": 1.,
+               "sigmoid_derivative_nonzero_by_output": [2, 2], "unique_prediction_rows": 2,
+               "predictions": [[1., 2.], [2., 3.]], "useful_current_gradients": True,
+               "gradients": [{"present": True, "finite": True, "norm": .2, "nonzero": 2}]}
+    final = dict(initial, training_loss=.8, validation_loss=.9)
+    return {"learning_observations": {"initial": initial, "final": final},
+            "learning_health": learning_health([initial, final])}
 
 
 class CorrectedDataTests(unittest.TestCase):
@@ -379,6 +395,141 @@ class CorrectedLearningTests(unittest.TestCase):
                                        execution=execution, execution_id="reopened")
             self.assertEqual(len(again["history"]), 3)
 
+    def test_lean_recovery_replays_unsaved_validation_and_preserves_current_adam(self):
+        with tempfile.TemporaryDirectory() as temporary, patch("triatomic_learning.PRODUCTION_ARCHITECTURE", [8, 4, 8, 4, 8]):
+            root = Path(temporary)
+            fixture_artifact(root / "data")
+            artifact = LabeledArtifact(root / "data")
+            config = {"architecture": "original-five-relu-corrected-io-v1",
+                      "epochs": 3, "batch_size": 3, "seed": 74, "learning_rate": .001}
+            execution = {"device": "cpu", "batch_size": 3, "torch_threads": 1, "checkpoint_steps": 4}
+            provenance = {"fixture": True}
+            validation_calls = 0
+
+            def earlier_best(*args, **kwargs):
+                nonlocal validation_calls
+                summary, records = evaluate_population(*args, **kwargs)
+                # Deliberately select epoch zero while real optimizer updates
+                # continue, so best/current confusion cannot pass this fixture.
+                summary["primary"] = 1.0 if validation_calls < 2 else 2.0
+                validation_calls += 1
+                return summary, records
+
+            with patch("triatomic_learning.evaluate_population", side_effect=earlier_best), \
+                    patch("triatomic_learning.save_resume_checkpoint", wraps=save_resume_checkpoint) as saves:
+                _, direct = train_production(root / "direct", artifact, config, provenance,
+                                             execution=execution, execution_id="fixture")
+            self.assertEqual(saves.call_count, 4)  # initial, updates 4/8, terminal
+            self.assertEqual(direct["best_epoch"], 0)
+            terminal = read_resume_checkpoint(root / "direct" / "latest.pt")
+            self.assertEqual((terminal["epoch"], terminal["next_row"], terminal["steps"]), (4, 0, 9))
+            self.assertTrue(any(not torch.equal(value, terminal["best"]["state_dict"][name])
+                                for name, value in terminal["current"].items()))
+            self.assertTrue(all(values["step"].item() == 9 for values in terminal["optimizer"]["state"].values()))
+            selected, _ = load_model(root / "direct" / "best.pt")
+            for name, value in selected.state_dict().items():
+                torch.testing.assert_close(value, terminal["best"]["state_dict"][name], rtol=0, atol=0)
+
+            validation_calls = 0
+            update_calls = 0
+
+            def interrupt_unsaved(*args, **kwargs):
+                nonlocal update_calls
+                update_calls += 1
+                if update_calls == 8:
+                    raise RuntimeError("unsaved interruption")
+                return training_step(*args, **kwargs)
+
+            with patch("triatomic_learning.evaluate_population", side_effect=earlier_best), \
+                    patch("triatomic_learning.training_step", side_effect=interrupt_unsaved):
+                with self.assertRaisesRegex(RuntimeError, "unsaved interruption"):
+                    train_production(root / "replay", artifact, config, provenance,
+                                     execution=execution, execution_id="fixture")
+            saved = read_resume_checkpoint(root / "replay" / "latest.pt")
+            self.assertEqual(saved["steps"], 4)
+            self.assertEqual([row["epoch"] for row in saved["history"]], [0, 1])
+            ahead = json.loads((root / "replay" / "history.json").read_text())
+            self.assertEqual([row["epoch"] for row in ahead], [0, 1, 2])
+
+            def verify_history_before_update(*args, **kwargs):
+                history = json.loads((root / "replay" / "history.json").read_text())
+                self.assertEqual([row["epoch"] for row in history], [0, 1])
+                return training_step(*args, **kwargs)
+
+            # Observe the first replayed update before later validations rewrite
+            # history. Then the actual training function handles subsequent calls.
+            replay_calls = 0
+
+            def replay_update(*args, **kwargs):
+                nonlocal replay_calls
+                replay_calls += 1
+                if replay_calls == 1:
+                    return verify_history_before_update(*args, **kwargs)
+                return training_step(*args, **kwargs)
+
+            with patch("triatomic_learning.evaluate_population", side_effect=earlier_best), \
+                    patch("triatomic_learning.training_step", side_effect=replay_update):
+                _, replayed = train_production(root / "replay", artifact, config, provenance,
+                                               execution=execution, execution_id="fixture", resume=True)
+            self.assertEqual(replay_calls, 5)
+            self.assertEqual([row["validation_primary"] for row in replayed["history"]],
+                             [row["validation_primary"] for row in direct["history"]])
+            recovered = read_resume_checkpoint(root / "replay" / "latest.pt")
+            for name, value in terminal["current"].items():
+                torch.testing.assert_close(value, recovered["current"][name], rtol=0, atol=0)
+            for parameter, values in terminal["optimizer"]["state"].items():
+                for name, value in values.items():
+                    torch.testing.assert_close(value, recovered["optimizer"]["state"][parameter][name], rtol=0, atol=0)
+            self.assertEqual(terminal["optimizer"]["param_groups"], recovered["optimizer"]["param_groups"])
+            # Even an ahead/stale reporting file on a completed fit must be
+            # reconciled without another update, validation, or recovery save.
+            (root / "replay" / "history.json").write_text("[]")
+            with patch("triatomic_learning.training_step", side_effect=AssertionError("completed update")), \
+                    patch("triatomic_learning.evaluate_population", side_effect=AssertionError("completed validation")), \
+                    patch("triatomic_learning.save_resume_checkpoint", side_effect=AssertionError("completed save")):
+                _, reopened = train_production(root / "replay", artifact, config, provenance,
+                                              execution=execution, execution_id="fixture", resume=True)
+            self.assertEqual(reopened["history"], recovered["history"])
+            self.assertEqual(json.loads((root / "replay" / "history.json").read_text()), recovered["history"])
+
+    def test_lean_recovery_deadline_forces_validation_cursor_save(self):
+        with tempfile.TemporaryDirectory() as temporary, patch("triatomic_learning.PRODUCTION_ARCHITECTURE", [8, 4, 8, 4, 8]):
+            root = Path(temporary)
+            fixture_artifact(root / "data")
+            artifact = LabeledArtifact(root / "data")
+            config = {"architecture": "original-five-relu-corrected-io-v1",
+                      "epochs": 1, "batch_size": 3, "seed": 74, "learning_rate": .001}
+            execution = {"device": "cpu", "batch_size": 3, "torch_threads": 1, "checkpoint_steps": 5000}
+            with patch("triatomic_learning.save_resume_checkpoint", wraps=save_resume_checkpoint) as saves:
+                with self.assertRaisesRegex(TimeoutError, "durable training cursor"):
+                    train_production(root / "fit", artifact, config, {"fixture": True},
+                                     execution=execution, execution_id="fixture", deadline=0)
+            self.assertEqual(saves.call_count, 2)
+            saved = read_resume_checkpoint(root / "fit" / "latest.pt")
+            self.assertEqual((saved["epoch"], saved["next_row"], saved["steps"]), (1, 0, 0))
+            self.assertEqual(saved["best"]["epoch"], 0)
+            with patch("triatomic_learning.save_resume_checkpoint", wraps=save_resume_checkpoint) as saves:
+                _, report = train_production(root / "fit", artifact, config, {"fixture": True},
+                                             execution=execution, execution_id="fixture", resume=True)
+            self.assertEqual(saves.call_count, 1)
+            self.assertEqual([row["epoch"] for row in report["history"]], [0, 1])
+
+    def test_atomic_recovery_write_failure_preserves_previous_checkpoint(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "latest.pt"
+            state = {"current": {"weight": torch.tensor([1.0], dtype=torch.float64)}, "steps": 1}
+            save_resume_checkpoint(path, state)
+            before = path.read_bytes()
+            replacement = {"current": {"weight": torch.tensor([2.0], dtype=torch.float64)}, "steps": 2}
+            with patch("triatomic_learning.os.replace", side_effect=OSError("replace failed")):
+                with self.assertRaisesRegex(OSError, "replace failed"):
+                    save_resume_checkpoint(path, replacement)
+            self.assertEqual(path.read_bytes(), before)
+            self.assertEqual(read_resume_checkpoint(path)["steps"], 1)
+            # A subsequent save replaces the leftover partial file normally.
+            save_resume_checkpoint(path, replacement)
+            self.assertEqual(read_resume_checkpoint(path)["steps"], 2)
+
     def test_runtime_changes_do_not_change_the_scientific_contract(self):
         controls = {"device": "cuda:0", "batch_size": 1024, "torch_threads": 8,
                     "checkpoint_steps": 500, "max_seconds": 600}
@@ -433,6 +584,128 @@ class CorrectedLearningTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "portable v2"):
                 read_resume_checkpoint(root / "legacy.pt")
 
+    def test_learning_health_recomputes_observations_and_rejects_forged_pass(self):
+        row = dict(fixture_learning_evidence(), batch_size=4)
+        self.assertTrue(check_learning_evidence(row)["passed"])
+        for field in ("sigmoid_derivative_nonzero_by_output", "predictions", "gradients", "validation_loss"):
+            broken = copy.deepcopy(row)
+            final = broken["learning_observations"]["final"]
+            if field == "sigmoid_derivative_nonzero_by_output":
+                final[field] = [0, 0]
+            elif field == "predictions":
+                final[field] = [[1., 1.], [1., 1.]]
+            elif field == "gradients":
+                final[field][0]["norm"] = 0.
+                final[field][0]["nonzero"] = 0
+            else:
+                final[field] = 1.1
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, "learning health"):
+                check_learning_evidence(broken)  # Stored pass and useful-gradient flags are still true.
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture_preflight(root, {}, {}, {"batch_size": 1024}, GenerationPolicy(0, 0, 1))
+            report = json.loads((root / "report.json").read_text())
+            report["counts"]["5"]["learning_observations"]["final"]["validation_loss"] = 2.
+            with self.assertRaisesRegex(ValueError, "learning health"):
+                check_preflight_evidence(report)
+            report.update(schema="corrected-timing-check-v2", checkpoint_schedule="initial-periodic-terminal-v1")
+            report["probe_training"] = {"learning_rate": .0001, "seed": 424245,
+                                        "updates": 7, "candidate_only": True}
+            (root / "report.json").write_text(json.dumps(report))
+            with self.assertRaisesRegex(ValueError, "learning health"):
+                verify_timing(root)  # Reject before expensive files/checkpoint inspection.
+            report["schema"] = "corrected-gpu-preflight-v2"
+            check_preflight_evidence(report, historical=True)
+            with self.assertRaisesRegex(ValueError, "portable GPU preflight"):
+                check_preflight_evidence(report)  # Historical qualification cannot admit a new production run.
+
+    def test_saturated_decoder_blocks_momentum_only_update(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture_artifact(root / "data")
+            artifact = LabeledArtifact(root / "data")
+            target = np.array(artifact.arrays["train"][1], copy=True)
+            model = BandInverse(5, 8, [1., 1., 1.])
+            optimizer = torch.optim.Adam(model.parameters(), lr=.001, foreach=False)
+            for parameter in model.parameters():
+                parameter.grad = torch.ones_like(parameter)
+            optimizer.step()  # Prime nonzero Adam momentum in this tiny negative-control fixture.
+            with torch.no_grad():
+                model.network[-1].weight.zero_()
+                model.network[-1].bias.copy_(torch.tensor([1000., 1000., -1000., -1000., -1000., -1000.]))
+            forward = DifferentiableTriatomic(GRID, 5)
+            observed = learning_observation(model, forward, target, target[:2], "cpu", gradients=True)
+            self.assertEqual(observed["sigmoid_derivative_nonzero_by_output"], [0] * 6)
+            self.assertEqual(observed["unique_prediction_rows"], 1)
+            self.assertFalse(learning_health([observed, observed])["passed"])
+            before = copy.deepcopy(model.state_dict())
+            state = copy.deepcopy(optimizer.state_dict())
+            with self.assertRaisesRegex(ArithmeticError, "momentum-only"):
+                training_step(model, forward, optimizer, target, "cpu")
+            for name, value in before.items():
+                torch.testing.assert_close(model.state_dict()[name], value, rtol=0, atol=0)
+            for parameter, values in state["state"].items():
+                for name, value in values.items():
+                    torch.testing.assert_close(optimizer.state_dict()["state"][parameter][name], value, rtol=0, atol=0)
+
+    def test_training_guard_allows_individually_zero_parameter_gradients(self):
+        class Partial(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.active = torch.nn.Parameter(torch.tensor(2., dtype=torch.float64))
+                self.inactive = torch.nn.Parameter(torch.tensor(3., dtype=torch.float64))
+            def forward(self, target):
+                return target * (self.active + 0 * self.inactive)
+        model = Partial()
+        optimizer = torch.optim.Adam(model.parameters(), lr=.001)
+        training_step(model, torch.nn.Identity(), optimizer, np.ones((2, 3, 3)), "cpu")
+        self.assertLess(model.active.item(), 2.)
+        self.assertEqual(model.inactive.grad.item(), 0.)
+
+    def test_thread_tuner_restores_weights_and_pristine_adam_next_update(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture_artifact(root / "data")
+            artifact = LabeledArtifact(root / "data")
+            target = np.array(artifact.arrays["train"][1], copy=True)
+            torch.manual_seed(74)
+            model = BandInverse(5, 8, np.sqrt(np.mean(target**2, axis=(0, 1))))
+            untouched = copy.deepcopy(model)
+            optimizer = torch.optim.Adam(model.parameters(), lr=.001, foreach=False)
+            reference = torch.optim.Adam(untouched.parameters(), lr=.001, foreach=False)
+            forward = DifferentiableTriatomic(GRID, 5)
+            tune_training_threads(model, forward, optimizer, target, torch.device("cpu"), 1, 1)
+            self.assertEqual(len(optimizer.state), 0)
+            for name, value in untouched.state_dict().items():
+                torch.testing.assert_close(model.state_dict()[name], value, rtol=0, atol=0)
+            self.assertEqual(training_step(model, forward, optimizer, target, "cpu"),
+                             training_step(untouched, forward, reference, target, "cpu"))
+            for name, value in untouched.state_dict().items():
+                torch.testing.assert_close(model.state_dict()[name], value, rtol=0, atol=0)
+            for parameter, values in reference.state_dict()["state"].items():
+                for name, value in values.items():
+                    torch.testing.assert_close(optimizer.state_dict()["state"][parameter][name], value, rtol=0, atol=0)
+
+    def test_checkpoint_timer_scopes_separate_preparation_and_full_recovery(self):
+        clock = [0.]
+        def elapsed(seconds, result):
+            def operation(*args, **kwargs):
+                clock[0] += seconds
+                return result
+            return operation
+        model = SimpleNamespace(interactions=5, state_dict=lambda: {"weight": "fixture"})
+        optimizer = SimpleNamespace(state_dict=lambda: {"optimizer": "fixture"})
+        with patch("corrected_pilot.time.perf_counter", side_effect=lambda: clock[0]), \
+                patch("corrected_pilot.production_payload", side_effect=elapsed(13, {"payload": True})), \
+                patch("corrected_pilot._save_checkpoint", side_effect=elapsed(5, None)), \
+                patch("corrected_pilot.synchronize"), \
+                patch("corrected_pilot.checkpoint_probe", side_effect=elapsed(7, {"fresh_probe": True})), \
+                patch("corrected_pilot.save_resume_checkpoint", side_effect=elapsed(11, None)) as recovery:
+            _, preparation, selected, resumed = measure_preflight_checkpoints(
+                Path("unused-fixture"), model, optimizer, None, {}, {}, "cpu")
+            self.assertEqual((preparation, selected, resumed), (13., 5., 18.))
+            self.assertEqual(recovery.call_args.args[1]["reload_probe"], {"fresh_probe": True})
+
     def test_preflight_requires_numerics_adam_continuation_and_timing(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "preflight"
@@ -463,6 +736,13 @@ class CorrectedLearningTests(unittest.TestCase):
             return replace(fixture_plan(), estimated_working_bytes=working_bytes(500, solver.interaction_count, 7, 1)), {"fixture": True}
         def small_data(path, config, *args, **kwargs):
             return generate_artifact(path, dict(config, validation_count_per_population=2), *args, **kwargs)
+        observation_calls = 0
+        def synthetic_observation(*args, **kwargs):
+            # This fixture qualifies control flow, not tiny-network learning accuracy.
+            nonlocal observation_calls
+            key = "initial" if observation_calls % 2 == 0 else "final"
+            observation_calls += 1
+            return fixture_learning_evidence()["learning_observations"][key]
         with (tempfile.TemporaryDirectory() as temporary,
               patch("triatomic_learning.PRODUCTION_ARCHITECTURE", [8, 4, 8, 4, 8]),
               patch("corrected_pilot.production_settings", return_value=controls),
@@ -474,6 +754,7 @@ class CorrectedLearningTests(unittest.TestCase):
               patch("corrected_pilot.update_local_settings"),
               patch("corrected_pilot.tune_execution", side_effect=tune),
               patch("corrected_pilot.generate_artifact", side_effect=small_data),
+              patch("corrected_pilot.learning_observation", side_effect=synthetic_observation),
               patch("torch.cuda.reset_peak_memory_stats"), patch("torch.cuda.empty_cache"),
               patch("torch.cuda.max_memory_allocated", return_value=0),
               patch("torch.cuda.max_memory_reserved", return_value=0), redirect_stdout(io.StringIO())):
@@ -486,15 +767,85 @@ class CorrectedLearningTests(unittest.TestCase):
                 self.assertTrue(report["counts"][str(count)]["adam_reload_next_update_exact"])
                 self.assertEqual(report["counts"][str(count)]["resume_verification_updates"], 2)
                 read_resume_checkpoint(root / f"m{count}-resume-probe.pt")
+                _, payload = load_model(root / f"m{count}.pt")
+                self.assertEqual(payload["training_configuration"]["seed"], 424245)
+                self.assertEqual(payload["training_configuration"]["updates"], 7)
+                self.assertEqual(payload["training_configuration"]["learning_rate"], .001)
+                self.assertNotIn("epochs", payload["training_configuration"])
             disposable = Path(temporary) / "timing"
             gpu_preflight(disposable, timing_only=True)
             timing = json.loads((disposable / "report.json").read_text())
-            self.assertEqual(timing["schema"], "corrected-timing-check-v1")
+            self.assertEqual(timing["schema"], "corrected-timing-check-v2")
+            self.assertEqual(timing["checkpoint_schedule"], "initial-periodic-terminal-v1")
             self.assertTrue(timing["disposable_timing_test"])
+            self.assertEqual(timing["probe_training"], {"learning_rate": .0001, "seed": 424245,
+                                                       "updates": 7, "candidate_only": True})
+            for count in (5, 20):
+                _, payload = load_model(disposable / f"m{count}.pt")
+                self.assertEqual(payload["training_configuration"]["learning_rate"], .0001)
+                state = read_resume_checkpoint(disposable / f"m{count}-resume-probe.pt")
+                self.assertEqual(state["optimizer"]["param_groups"][0]["lr"], .0001)
+            self.assertEqual(production_protocol(controls)["fits"][0]["training"]["learning_rate"], .001)
             self.assertIn(timing["controls"]["torch_threads"], (1, 2))
             self.assertTrue(all(row["resume_verification_updates"] == 0 for row in timing["counts"].values()))
             with self.assertRaisesRegex(ValueError, "fixed batch size"):
                 verify_timing(disposable)  # Tiny fixture rates must never price production.
+            with patch("corrected_pilot.training_step", side_effect=ArithmeticError("all current gradients are zero")), \
+                    patch("corrected_pilot.measure_preflight_checkpoints") as writes:
+                failed = Path(temporary) / "zero-gradients"
+                with self.assertRaisesRegex(ArithmeticError, "all current gradients"):
+                    gpu_preflight(failed, timing_only=True)
+                writes.assert_not_called()
+                failure = json.loads((failed / "report.json").read_text())
+                self.assertEqual(failure["failure"]["stage"], "thread_tuning")
+                self.assertEqual(set(failure["counts"]), {"5"})
+                self.assertFalse(failure["passed"])
+                self.assertIn("final", failure["counts"]["5"]["learning_observations"])
+                warmup_failed = Path(temporary) / "zero-warmup-gradients"
+                with self.assertRaisesRegex(ArithmeticError, "all current gradients"):
+                    gpu_preflight(warmup_failed)
+                failure = json.loads((warmup_failed / "report.json").read_text())
+                self.assertEqual(failure["failure"]["stage"], "warmup")
+                writes.assert_not_called()
+            with patch("corrected_pilot.learning_observation", return_value=fixture_learning_evidence()["learning_observations"]["initial"]), \
+                    patch("corrected_pilot.measure_preflight_checkpoints") as writes:
+                failed = Path(temporary) / "unhealthy"
+                with self.assertRaisesRegex(ArithmeticError, "learning health"):
+                    gpu_preflight(failed)
+                writes.assert_not_called()
+                failure = json.loads((failed / "report.json").read_text())
+                self.assertEqual(failure["failure"]["stage"], "learning_health")
+                self.assertEqual(set(failure["counts"]), {"5"})
+                self.assertFalse(failure["counts"]["5"]["learning_health"]["passed"])
+            nonfinite = copy.deepcopy(fixture_learning_evidence()["learning_observations"]["final"])
+            nonfinite["gradients"][0]["norm"] = float("nan")
+            nonfinite["logit_min_by_output"] = [float("-inf"), 0.]
+            nonfinite["logit_max_by_output"] = [float("inf"), 1.]
+            original_error = ArithmeticError("missing or nonfinite gradient")
+            with patch("corrected_pilot.learning_observation", side_effect=[
+                    fixture_learning_evidence()["learning_observations"]["initial"], nonfinite]), \
+                    patch("corrected_pilot.training_step", side_effect=original_error), \
+                    patch("corrected_pilot.measure_preflight_checkpoints") as writes:
+                failed = Path(temporary) / "nonfinite-gradient"
+                with self.assertRaises(ArithmeticError) as raised:
+                    gpu_preflight(failed)
+                self.assertIs(raised.exception, original_error)
+                writes.assert_not_called()
+                def reject_nonstandard_constant(value):
+                    self.fail(f"nonstandard JSON numeric constant: {value}")
+                failure = json.loads((failed / "report.json").read_text(), parse_constant=reject_nonstandard_constant)
+                self.assertEqual(failure["failure"]["stage"], "warmup")
+                self.assertEqual(failure["failure"]["error"], str(original_error))
+                self.assertEqual(set(failure["counts"]), {"5"})
+                self.assertFalse(failure["passed"])
+                row = failure["counts"]["5"]
+                self.assertFalse(row["learning_health"]["passed"])
+                observed = row["learning_observations"]["final"]
+                self.assertEqual(observed["gradients"][0]["norm"], {"nonfinite": "nan"})
+                self.assertEqual(observed["logit_min_by_output"][0], {"nonfinite": "negative_infinity"})
+                self.assertEqual(observed["logit_max_by_output"][0], {"nonfinite": "positive_infinity"})
+                with self.assertRaisesRegex(ValueError, "learning health"):
+                    check_learning_evidence(row)
             controls["max_seconds"] = 0
             with self.assertRaisesRegex(TimeoutError, "preflight time allowance"):
                 gpu_preflight(Path(temporary) / "expired")
@@ -535,7 +886,7 @@ class CorrectedLearningTests(unittest.TestCase):
             self.assertLessEqual(limit * 2 * 1024**2, gib * 1024**3 // 8)
 
     def test_independent_timing_accounting_includes_all_large_stages(self):
-        work = timing_workload(500)
+        work = timing_workload(500, "initial-periodic-epoch-v1")
         self.assertEqual(work["optimizer_updates"], 169010)
         self.assertEqual(work["generated_rows"], 4601618)
         self.assertEqual(work["validation_passes"], 1622)
@@ -547,10 +898,26 @@ class CorrectedLearningTests(unittest.TestCase):
                "resume_checkpoint_write_seconds": .1, "checkpoint_write_seconds": .05,
                "best_payload_prepare_seconds": .01, "compact_evaluation_seconds": 1,
                "compact_evaluation_rows": 2048, "reload_and_scoring_check_seconds": .2}
-        result = timing_projection({"controls": {"checkpoint_steps": 500}, "counts": {"5": row, "20": row}}, 1e9)
+        historical = {"schema": "corrected-timing-check-v1", "controls": {"checkpoint_steps": 500},
+                      "counts": {"5": row, "20": row}}
+        result = timing_projection(historical, 1e9)
         self.assertEqual(result["stages"]["training_updates"]["upper_seconds"], 3 * 169010)
         self.assertGreater(result["upper_seconds"], 3 * 169010)
         self.assertEqual(result["planning_seconds_with_25_percent_margin"], result["upper_seconds"] * 1.25)
+        lean = timing_workload(5000, "initial-periodic-terminal-v1")
+        self.assertEqual(lean["resumable_checkpoint_writes"], 52)
+        for name in work:
+            if name != "resumable_checkpoint_writes":
+                self.assertEqual(lean[name], work[name])
+        current = dict(historical, schema="corrected-timing-check-v2",
+                       checkpoint_schedule="initial-periodic-terminal-v1", controls={"checkpoint_steps": 5000})
+        projection = timing_projection(current, 1e9)
+        self.assertEqual(projection["stages"]["periodic_checkpoint_writes"]["upper_seconds"], 5.2)
+        self.assertEqual(result["workload"]["resumable_checkpoint_writes"], 1967)
+        with self.assertRaisesRegex(ValueError, "historical"):
+            timing_projection(dict(historical, checkpoint_schedule="initial-periodic-terminal-v1"), 1e9)
+        with self.assertRaisesRegex(ValueError, "lean"):
+            timing_projection(dict(current, checkpoint_schedule="initial-periodic-epoch-v1"), 1e9)
 
     def test_compact_cross_count_resume_checksums_and_common_scores(self):
         with tempfile.TemporaryDirectory() as temporary:
