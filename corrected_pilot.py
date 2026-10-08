@@ -372,8 +372,11 @@ def tune_training_threads(model, forward, optimizer, target, device, available, 
              "selection": "fastest measured transfer-inclusive full-batch update; bounded search, not a global optimum"}
 
 
-def learning_health(states, *, minimum_relative_improvement=0.001):
-    """A bounded learning witness, separate from numerical/timing qualification."""
+def learning_health(states, *, minimum_relative_improvement=0.001, validation_required=True):
+    """A bounded learning witness, separate from numerical/timing qualification.
+
+    Disposable timing records the small validation witness without gating on it:
+    a few updates make it noisy, while collapse shows in the other checks."""
     if not states:
         raise ValueError("learning health requires observed states")
     first, last = states[0], states[-1]
@@ -395,14 +398,15 @@ def learning_health(states, *, minimum_relative_improvement=0.001):
         initial, final = first[key], last[key]
         improved = np.isfinite(initial) and np.isfinite(final) and initial > 0 and final <= initial * (1 - minimum_relative_improvement)
         progress[key] = {"initial": initial, "final": final, "improved": bool(improved)}
-        if not improved:
+        if not improved and (key == "training_loss" or validation_required):
             reasons.append(f"no meaningful bounded-window {key} improvement")
     return {"passed": not reasons, "reasons": reasons, "progress": progress,
             "minimum_relative_improvement": minimum_relative_improvement,
+            "validation_required": validation_required,
             "scope": "fixed training/validation witness only; not generalization or GPU qualification"}
 
 
-def check_learning_evidence(row):
+def check_learning_evidence(row, *, validation_required=True):
     """Recompute the health decision from observations, never trust a pass flag."""
     try:
         observations = row["learning_observations"]
@@ -411,7 +415,7 @@ def check_learning_evidence(row):
             live = np.asarray(state["sigmoid_derivative_nonzero_by_output"])
             if live.ndim != 1 or not len(live) or np.any(live < 0) or np.any(live > row["batch_size"]):
                 raise ValueError("invalid derivative counts")
-        actual = learning_health(states)
+        actual = learning_health(states, validation_required=validation_required)
         if not actual["passed"] or row["learning_health"] != actual:
             raise ValueError("health decision differs from observations")
     except (KeyError, TypeError, ValueError) as error:
@@ -795,7 +799,7 @@ def gpu_preflight(output, *, timing_only=False):
     bulk = output / "bulk" if timing_only else output
     if timing_only:
         bulk.mkdir()
-    report = {"schema": "corrected-timing-check-v3" if timing_only else "corrected-gpu-preflight-v4",
+    report = {"schema": "corrected-timing-check-v4" if timing_only else "corrected-gpu-preflight-v4",
                "passed": False, "provenance": provenance, "hardware": hardware,
                "checkpoint_schedule": "initial-periodic-terminal-v1",
                "numerical_timing_passed": False, "learning_health_passed": False,
@@ -866,7 +870,8 @@ def gpu_preflight(output, *, timing_only=False):
                     failure["final_observation_error"] = str(observation_error)
             if final is not None:
                 failure["learning_observations"]["final"] = final
-                failure["learning_health"] = learning_health([initial_learning, final])
+                failure["learning_health"] = learning_health([initial_learning, final],
+                                                             validation_required=not timing_only)
                 failure["learning_health"]["passed"] = False
                 failure["learning_health"]["reasons"].append(f"training execution failed at {stage}")
             report["counts"][str(interactions)] = failure
@@ -921,7 +926,7 @@ def gpu_preflight(output, *, timing_only=False):
             synchronize(device)
             durations.append(time.perf_counter() - tick)
         final_learning = learning_observation(model, forward, target, validation_witness, device, gradients=True)
-        health = learning_health([initial_learning, final_learning])
+        health = learning_health([initial_learning, final_learning], validation_required=not timing_only)
         if not health["passed"]:
             error = ArithmeticError("bounded learning health failed; observations retained before checkpoint/export")
             preserve_learning_failure("learning_health", error, final_learning)

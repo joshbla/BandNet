@@ -79,14 +79,14 @@ def fixture_preflight(root, source, hardware, controls, policy):
     (root / "report.json").write_text(json.dumps(report))
 
 
-def fixture_learning_evidence():
+def fixture_learning_evidence(*, validation_required=True):
     initial = {"finite": True, "training_loss": 1., "validation_loss": 1.,
                "sigmoid_derivative_nonzero_by_output": [2, 2], "unique_prediction_rows": 2,
                "predictions": [[1., 2.], [2., 3.]], "useful_current_gradients": True,
                "gradients": [{"present": True, "finite": True, "norm": .2, "nonzero": 2}]}
     final = dict(initial, training_loss=.8, validation_loss=.9)
     return {"learning_observations": {"initial": initial, "final": final},
-            "learning_health": learning_health([initial, final])}
+            "learning_health": learning_health([initial, final], validation_required=validation_required)}
 
 
 class CorrectedDataTests(unittest.TestCase):
@@ -588,6 +588,15 @@ class CorrectedLearningTests(unittest.TestCase):
     def test_learning_health_recomputes_observations_and_rejects_forged_pass(self):
         row = dict(fixture_learning_evidence(), batch_size=4)
         self.assertTrue(check_learning_evidence(row)["passed"])
+        # The observed M8 timing stop: training improved, small validation witness rose.
+        noisy = copy.deepcopy(fixture_learning_evidence())["learning_observations"]
+        noisy["final"]["validation_loss"] = 1.07
+        self.assertFalse(learning_health([noisy["initial"], noisy["final"]])["passed"])
+        timing = learning_health([noisy["initial"], noisy["final"]], validation_required=False)
+        self.assertTrue(timing["passed"])
+        self.assertFalse(timing["progress"]["validation_loss"]["improved"])
+        stalled = dict(noisy["final"], training_loss=1.)
+        self.assertFalse(learning_health([noisy["initial"], stalled], validation_required=False)["passed"])
         for field in ("sigmoid_derivative_nonzero_by_output", "predictions", "gradients", "validation_loss"):
             broken = copy.deepcopy(row)
             final = broken["learning_observations"]["final"]
@@ -639,6 +648,7 @@ class CorrectedLearningTests(unittest.TestCase):
             self.assertEqual(observed["sigmoid_derivative_nonzero_by_output"], [0] * 6)
             self.assertEqual(observed["unique_prediction_rows"], 1)
             self.assertFalse(learning_health([observed, observed])["passed"])
+            self.assertFalse(learning_health([observed, observed], validation_required=False)["passed"])
             before = copy.deepcopy(model.state_dict())
             state = copy.deepcopy(optimizer.state_dict())
             with self.assertRaisesRegex(ArithmeticError, "momentum-only"):
@@ -785,7 +795,7 @@ class CorrectedLearningTests(unittest.TestCase):
             disposable = Path(temporary) / "timing"
             gpu_preflight(disposable, timing_only=True)
             timing = json.loads((disposable / "report.json").read_text())
-            self.assertEqual(timing["schema"], "corrected-timing-check-v3")
+            self.assertEqual(timing["schema"], "corrected-timing-check-v4")
             self.assertEqual(timing["checkpoint_schedule"], "initial-periodic-terminal-v1")
             self.assertTrue(timing["disposable_timing_test"])
             self.assertEqual(timing["probe_training"], {"learning_rate": .0001, "seed": 424245,
@@ -987,8 +997,8 @@ class CorrectedLearningTests(unittest.TestCase):
                "cuda_reload_exact": True, "common_cpu_scoring_passed": True,
                "cpu_reload_prediction_tolerance": {"rtol": 1e-10, "atol": 1e-10},
                "numerical": {"interior_gradcheck": True, "finite_boundary_and_repeated_band_gradients": True}}
-        row.update(fixture_learning_evidence())
-        report = {"schema": "corrected-timing-check-v3", "passed": True,
+        row.update(fixture_learning_evidence(validation_required=False))
+        report = {"schema": "corrected-timing-check-v4", "passed": True,
                   "numerical_timing_passed": True, "learning_health_passed": True,
                   "probe_training": {"learning_rate": .0001, "seed": 424245, "updates": 7, "production_rate": True},
                   "checkpoint_schedule": "initial-periodic-terminal-v1",

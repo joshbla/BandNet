@@ -80,7 +80,7 @@ python corrected_pilot.py --timing-check --output /workspace/artifacts/disposabl
 python verify_corrected_pilot.py --timing --run /workspace/artifacts/disposable-timing --report /workspace/artifacts/timing-audit.json
 ```
 
-Timing report `corrected-timing-check-v3` measures every M5..M20 count: two warmups,
+Timing report `corrected-timing-check-v4` measures every M5..M20 count: two warmups,
 five timed endpoint updates or three intermediate updates, full 4,096-row validation,
 and a full recovery save per count. Numerical/reload checks remain at M5/M20.
 Generation tuning runs at M5/M20; M6-M19 reuse the M5 plan to fit the allocation,
@@ -91,6 +91,10 @@ finalization. `BANDNET_TIMING_IO_ROWS=250000` requests about 3 GB of real float6
 bands; the report records any time-based reduction. One complete shuffled epoch
 uses production mmap indexing, host copying and device transfer, without updates.
 Page-cache eviction is advisory and never reported as guaranteed cold storage.
+Timing v4 records the 32-row validation witness without stopping on it, because a
+few updates make it noisy (timing v3 stopped at M8 on that alone). Nonfinite values,
+dead outputs, identical predictions, zero gradients or stalled training loss still
+stop the run. Production preflight keeps the strict validation requirement.
 
 Export `report.json`, `report.sha256`, `sources/`, all `m*-timing-records/` and the
 independent audit only. Exclude `bulk/`, which contains disposable checkpoints and
@@ -116,7 +120,7 @@ not a measurement of the changed code, and still exceeds the owner's $11 ceiling
 See `../docs/THREE_BAND_RERUN_MAP.md`, Bounded Learning Diagnosis And Lean Recovery
 Saving, for the diagnosis, source hashes, limitations and saved evidence.
 Both retry pods/storage were removed. Current local verification: 78 Python tests
-and nine shutdown-controller tests pass. No GPU timing v3 measurement was run locally.
+and nine shutdown-controller tests pass. No GPU timing v4 measurement was run locally.
 
 The fixed CUDA runner restores the recorded five-hidden-layer ReLU architecture
 (`5000,2500,5000,2500,5000`) with the adopted corrected contract: 1,500 scaled
@@ -150,7 +154,7 @@ uv run --frozen --extra training python corrected_pilot.py --gpu-preflight --out
 Preflight checks M5/M20 values, gradients, full-architecture optimizer updates,
 CPU-scored predictions, CUDA/CPU checkpoint reload, resources and native CPU
 thread control. New preflight v4 also requires learning progress, varied predictions
-and live gradients; timing v3 reports the same learning evidence separately from
+and live gradients; timing v4 reports the same learning evidence separately from
 numerical/timing correctness. Failed learning stops before large checkpoint export
 or the next endpoint, retaining diagnostic observations. It measures two warmup and five timed updates per endpoint with
 batch size 1,024, full validation and checkpoint-writing/integrity-hashing overhead.

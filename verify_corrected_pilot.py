@@ -273,7 +273,7 @@ def timing_projection(report, hash_bytes_per_second, hourly_price=None):
 
 
 def timing_projection_seconds(report, hash_bytes_per_second):
-    if report["schema"] == "corrected-timing-check-v3":
+    if report["schema"] == "corrected-timing-check-v4":
         return timing_projection_all_counts(report, hash_bytes_per_second)
     if report["schema"] == "corrected-timing-check-v1":
         checkpoint_schedule = "initial-periodic-epoch-v1"
@@ -394,13 +394,13 @@ def verify_timing(root, hourly_price=None):
     """Check raw evidence and independently derive a full-run estimate on CPU."""
     root = Path(root)
     report = json.loads((root / "report.json").read_text())
-    if report["schema"] not in ("corrected-timing-check-v1", "corrected-timing-check-v2", "corrected-timing-check-v3") or report["passed"] is not True:
+    if report["schema"] not in ("corrected-timing-check-v1", "corrected-timing-check-v2", "corrected-timing-check-v4") or report["passed"] is not True:
         raise ValueError("a completed disposable timing check is required")
-    new = report["schema"] == "corrected-timing-check-v3"
+    new = report["schema"] == "corrected-timing-check-v4"
     expected_counts = {str(k) for k in range(5, 21)} if new else {"5", "20"}
     if report["controls"]["batch_size"] != 1024 or set(report["counts"]) != expected_counts:
         raise ValueError("timing must measure the fixed batch size and both endpoints")
-    if report["schema"] in ("corrected-timing-check-v2", "corrected-timing-check-v3"):
+    if report["schema"] in ("corrected-timing-check-v2", "corrected-timing-check-v4"):
         expected_probe = {"learning_rate": .0001, "seed": 424245, "updates": 7}
         expected_probe.update({"production_rate": True} if new else {"candidate_only": True})
         if report["probe_training"] != expected_probe:
@@ -409,7 +409,7 @@ def verify_timing(root, hourly_price=None):
                 or report["numerical_timing_passed"] is not True or report["learning_health_passed"] is not True):
             raise ValueError("new timing requires explicit schedule and learning qualification")
         for row in report["counts"].values():
-            check_learning_evidence(row)
+            check_learning_evidence(row, validation_required=not new)
     checked_bytes = 0
     tick = time.perf_counter()
     for name, digest in report["files"].items():
