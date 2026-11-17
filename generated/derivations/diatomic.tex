@@ -1,0 +1,148 @@
+% Canonical BandNet diatomic derivation.
+% Requires generated/derivations/equations.tex.
+
+This derivation treats a one-dimensional diatomic lattice with local and
+beyond-nearest-neighbor interactions, following the nonlocal spring-mass lattice
+formulation of Ref.~\cite{kazemi2023drawing}. It proceeds from the site equation
+of motion to the two cell equations, assembles the Bloch eigenproblem, solves its
+generalized determinant for the acoustic and optical branches, and closes with
+consistency checks.
+
+\subsection{Model and notation}
+
+Consider an infinite, free-standing chain of point masses in which two positive
+masses $m_1$ and $m_2$ alternate on equally spaced sites $x_j=jd$,
+$j\in\mathbb{Z}$; no assumption $m_1\neq m_2$ is made. The repeat period is
+$L=2d$: cell $\ell\in\mathbb{Z}$ contains an $m_1$ mass at $x=2\ell d$ and an
+$m_2$ mass at $x=(2\ell+1)d$. Every mass is connected by a passive linear spring
+of stiffness $k_n\geq0$ to the two masses $n$ sites away,
+$n=1,2,\ldots,N$, and no spring connects any mass to ground. Even $n$ connects
+sites on the same sublattice; odd $n$ connects opposite sublattices. Let
+$u_\ell$ and $v_\ell$ denote the two displacements in cell $\ell$.
+
+\subsection{Equations of motion}
+
+For a site $j$ with displacement $w_j$ and mass $m$, balance of linear momentum
+gives
+\begin{equation}
+    m\ddot{w}_j=\sum_{n=1}^{N}k_n
+    \left(w_{j+n}+w_{j-n}-2w_j\right).
+    \label{eq:site}
+\end{equation}
+Separating the even and odd interactions gives
+\begin{align}
+    m_1\ddot{u}_\ell
+    &=\sum_{\substack{n=2\\\text{$n$ even}}}^{N}k_n
+      \left(u_{\ell+\frac n2}+u_{\ell-\frac n2}-2u_\ell\right)
+      +\sum_{\substack{n=1\\\text{$n$ odd}}}^{N}k_n
+      \left(v_{\ell+\frac{n-1}{2}}+v_{\ell-\frac{n+1}{2}}-2u_\ell\right),
+      \label{eq:cellA}\\
+    m_2\ddot{v}_\ell
+    &=\sum_{\substack{n=2\\\text{$n$ even}}}^{N}k_n
+      \left(v_{\ell+\frac n2}+v_{\ell-\frac n2}-2v_\ell\right)
+      +\sum_{\substack{n=1\\\text{$n$ odd}}}^{N}k_n
+      \left(u_{\ell+\frac{n+1}{2}}+u_{\ell-\frac{n-1}{2}}-2v_\ell\right).
+      \label{eq:cellB}
+\end{align}
+
+\subsection{Bloch ansatz and eigenproblem}
+
+Use the cell-index Bloch gauge
+\begin{equation}
+    u_\ell(t)=Ue^{i(q\ell L-\omega t)},\qquad
+    v_\ell(t)=Ve^{i(q\ell L-\omega t)}.
+    \label{eq:bloch}
+\end{equation}
+The intra-cell offset is absorbed into $V$. A position-based gauge moves the
+factors $e^{\pm iqd}$ from the matrix into the amplitude without changing the
+eigenfrequencies. Each even interaction contributes
+$2[\cos(nqd)-1]$. Each odd interaction contributes
+\begin{equation*}
+    e^{iq\frac{n-1}{2}L}+e^{-iq\frac{n+1}{2}L}
+    =2e^{-iqd}\cos(nqd)
+\end{equation*}
+in the first equation and its complex conjugate in the second. Therefore
+\begin{equation}
+    \BandNetDiatomicEigenproblem.
+    \label{eq:eigen}
+\end{equation}
+Here
+\begin{equation}
+    \BandNetDiatomicKDefinitions.
+    \label{eq:dia-k}
+\end{equation}
+The matrix on the right is Hermitian, so its generalized eigenvalues are real
+for positive masses.
+
+\subsection{Dispersion branches}
+
+Nontrivial solutions require
+\begin{equation}
+    \BandNetDiatomicDeterminant.
+    \label{eq:determinant}
+\end{equation}
+Solving this quadratic in $\omega^2$ gives
+\begin{equation}
+    \BandNetDiatomicBranches.
+    \label{eq:dia-branches}
+\end{equation}
+The minus and plus signs define the lower and upper branches. When at least one
+odd-distance stiffness is positive, these are conventionally the acoustic and
+optical branches. Using
+$(1/m_1+1/m_2)^2-4/(m_1m_2)=(1/m_1-1/m_2)^2$, the radicand is
+\begin{equation}
+    \BandNetDiatomicRadicand.
+    \label{eq:radicand}
+\end{equation}
+Thus the branches are real and ordered. Nonnegative stiffnesses also imply
+$2K_0\geq|K_1|$, so both squared frequencies are nonnegative.
+
+\subsection{Wave-number domain and consistency checks}
+
+The first Brillouin zone is $|q|\leq\pi/(2d)$. The dispersion is even, so the
+positive half is represented by $\hat q=2qd/\pi\in[0,1]$.
+
+\paragraph{Zone center.}
+Let $K_{\mathrm{odd}}=\sum_{\text{$n$ odd}}k_n$. At $q=0$,
+$K_0=K_{\mathrm{odd}}$ and $K_1=2K_{\mathrm{odd}}$, giving
+\begin{equation*}
+    \omega_{\mathrm{ac}}^2(0)=0,\qquad
+    \omega_{\mathrm{op}}^2(0)=2K_{\mathrm{odd}}
+    \left(\frac1{m_1}+\frac1{m_2}\right).
+\end{equation*}
+The zero acoustic value reflects the absence of grounded springs. The optical
+gap is set entirely by odd-$n$ springs between the two sublattices.
+
+\paragraph{Zone edge.}
+At $qd=\pi/2$, all odd-$n$ cosine terms vanish. The sublattices decouple and the
+two values are $2K_0/m_1$ and $2K_0/m_2$. Their squared-frequency separation is
+$2K_0|1/m_1-1/m_2|$ and closes when $m_1=m_2$.
+
+\paragraph{Nearest-neighbor limit.}
+If only $k_1$ remains, $K_0=k_1$ and $K_1=2k_1\cos(qd)$. The branches reduce to
+\begin{equation*}
+    \omega^2(q)=k_1\left(\frac1{m_1}+\frac1{m_2}\right)
+    \mathbin{\pm}k_1\sqrt{
+        \left(\frac1{m_1}+\frac1{m_2}\right)^2
+        -\frac{4\sin^2(qd)}{m_1m_2}},
+\end{equation*}
+the standard nearest-neighbor diatomic dispersion.
+
+\paragraph{Equal masses.}
+For $m_1=m_2=m$, the radicand is $K_1^2/m^2$ and the ordered branches are
+$(2K_0\mp|K_1|)/m$. The unordered pair can be written
+\begin{equation*}
+\left\{
+\begin{aligned}
+    \frac{2K_0-K_1}{m}
+        &=\frac2m\sum_{n=1}^{N}k_n\left[1-\cos(nqd)\right],\\
+    \frac{2K_0+K_1}{m}
+        &=\frac2m\sum_{n=1}^{N}k_n
+          \left[1-\cos\left(n(\pi-qd)\right)\right].
+\end{aligned}
+\right.
+\end{equation*}
+Here $\cos(n(\pi-qd))=(-1)^n\cos(nqd)$. These are the monoatomic dispersion at
+$q$ and at the folded point $\pi/d-q$. The curves can exchange lower and upper
+ordering where $K_1$ changes sign and meet where $K_1=0$, including the zone
+edge.

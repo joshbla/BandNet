@@ -1,0 +1,43 @@
+% Canonical BandNet monoatomic derivation.
+% Requires generated/derivations/equations.tex.
+
+Consider an infinite, free-standing monoatomic chain with positive mass $m$ at
+each site, adjacent-site spacing $a$, and symmetric passive interaction
+stiffnesses $k_n\geq0$
+connecting every site to the sites $n$ positions away. If $u_j(t)$ is the
+displacement of site $j$, its equation of motion is
+\begin{equation}
+    \BandNetMonoEquationOfMotion.
+    \label{eq:mono-eom}
+\end{equation}
+
+For a Bloch wave with wave number $q$ and angular frequency $\omega$, write
+\begin{equation}
+    u_j(t)=Ue^{i(qja-\omega t)}.
+    \label{eq:mono-bloch}
+\end{equation}
+The shifted displacements and acceleration are then
+\begin{equation}
+    u_{j\pm n}=u_je^{\pm inqa},
+    \qquad
+    \ddot{u}_j=-\omega^2u_j.
+    \label{eq:mono-shifts}
+\end{equation}
+Substitution of Eq.~\eqref{eq:mono-shifts} into Eq.~\eqref{eq:mono-eom} gives
+\begin{equation}
+    -m\omega^2u_j
+    =u_j\sum_{n=1}^{N}k_n
+    \left(e^{inqa}+e^{-inqa}-2\right).
+    \label{eq:mono-substitution}
+\end{equation}
+For a nontrivial Bloch mode, $U\neq0$. Using
+$e^{inqa}+e^{-inqa}=2\cos(nqa)$ and canceling the common displacement amplitude
+yields
+\begin{align}
+    -m\omega^2
+    &=2\sum_{n=1}^{N}k_n\left[\cos(nqa)-1\right], \\
+    \BandNetMonoDispersion.
+    \label{eq:mono-derived}
+\end{align}
+This is Eq.~\eqref{1D_mono_dispersion}. In particular, $\omega^2(0)=0$, as
+required by rigid translation of a free-standing chain.

@@ -1,0 +1,136 @@
+% Canonical BandNet equations. Edit only in BandNet-Docs/derivations/source.
+% BN-MONO-EOM
+\newcommand{\BandNetMonoEquationOfMotion}{%
+    m\ddot{u}_j=\sum_{n=1}^{N}k_n
+    \left(u_{j+n}+u_{j-n}-2u_j\right)%
+}
+
+% BN-MONO-DISPERSION
+\newcommand{\BandNetMonoDispersion}{%
+    \omega^2(q)=\frac{2}{m}\sum_{n=1}^{N}k_n
+    \left[1-\cos(nqa)\right]%
+}
+
+% BN-DIA-K
+\newcommand{\BandNetDiatomicKDefinitions}{%
+\begin{aligned}
+    K_0(q) &= \sum_{n=1}^{N} k_n
+        - \sum_{\substack{n=2\\ \text{$n$ even}}}^{N}
+        k_n\cos(nqd), \\
+    K_1(q) &= 2\sum_{\substack{n=1\\ \text{$n$ odd}}}^{N}
+        k_n\cos(nqd)
+\end{aligned}%
+}
+
+% BN-DIA-EIGENPROBLEM
+\newcommand{\BandNetDiatomicEigenproblem}{%
+    \omega^2
+    \begin{bmatrix}m_1&0\\0&m_2\end{bmatrix}
+    \begin{bmatrix}U\\V\end{bmatrix}
+    =
+    \begin{bmatrix}
+        2K_0&-e^{-iqd}K_1\\
+        -e^{iqd}K_1&2K_0
+    \end{bmatrix}
+    \begin{bmatrix}U\\V\end{bmatrix}%
+}
+
+% BN-DIA-DETERMINANT
+\newcommand{\BandNetDiatomicDeterminant}{%
+\begin{aligned}
+    (2K_0-m_1\omega^2)(2K_0-m_2\omega^2)-K_1^2&=0,\\
+    m_1m_2\omega^4-2K_0(m_1+m_2)\omega^2
+        +4K_0^2-K_1^2&=0
+\end{aligned}%
+}
+
+% BN-DIA-BRANCHES
+\newcommand{\BandNetDiatomicBranches}{%
+\begin{aligned}
+    \omega_{\mathrm{ac}}^2(q)
+        &=K_0\left(\frac{1}{m_1}+\frac{1}{m_2}\right)
+        -\sqrt{K_0^2\left(\frac{1}{m_1}+\frac{1}{m_2}\right)^2
+        +\frac{K_1^2-4K_0^2}{m_1m_2}},\\
+    \omega_{\mathrm{op}}^2(q)
+        &=K_0\left(\frac{1}{m_1}+\frac{1}{m_2}\right)
+        +\sqrt{K_0^2\left(\frac{1}{m_1}+\frac{1}{m_2}\right)^2
+        +\frac{K_1^2-4K_0^2}{m_1m_2}}
+\end{aligned}%
+}
+
+% BN-DIA-RADICAND
+\newcommand{\BandNetDiatomicRadicand}{%
+    K_0^2\left(\frac{1}{m_1}-\frac{1}{m_2}\right)^2
+    +\frac{K_1^2}{m_1m_2}\geq0%
+}
+
+% BN-TRI-EOM
+\newcommand{\BandNetTriatomicEquationOfMotion}{%
+    m_j\ddot{y}_j=\sum_{n=1}^{N}k_n
+    \left(y_{j+n}+y_{j-n}-2y_j\right),
+    \qquad m_{j+3}=m_j%
+}
+
+% BN-TRI-PADDING
+\newcommand{\BandNetTriatomicPadding}{%
+    P=\left\lceil\frac{N}{3}\right\rceil,\qquad N'=3P,
+    \qquad k_n=0\quad\text{for }N<n\leq N'%
+}
+
+% BN-TRI-GENERALIZED
+\newcommand{\BandNetTriatomicGeneralizedEigenproblem}{%
+    -\omega^2\mathbf{M}\overline{\mathbf{u}}
+    =\mathbf{F}(q)\overline{\mathbf{u}},
+    \qquad
+    \overline{\mathbf{u}}=\begin{bmatrix}U\\V\\W\end{bmatrix},
+    \qquad
+    \mathbf{M}=\begin{bmatrix}m_1&0&0\\0&m_2&0\\0&0&m_3\end{bmatrix}%
+}
+
+% BN-TRI-FORCE
+\newcommand{\BandNetTriatomicForceMatrix}{%
+    \mathbf{F}(q)=
+    \begin{bmatrix}
+        A&B&C\\
+        e^{iQ}C&A&B\\
+        e^{iQ}B&e^{iQ}C&A
+    \end{bmatrix}%
+}
+
+% BN-TRI-ABC
+\newcommand{\BandNetTriatomicEntries}{%
+\begin{aligned}
+    A(q)&=-2\sum_{n=1}^{N'}k_n
+        +\sum_{j=1}^{P}k_{3j}\left(e^{ijQ}+e^{-ijQ}\right),\\
+    B(q)&=\sum_{j=1}^{P}\left[k_{3j-2}e^{i(j-1)Q}
+        +k_{3j-1}e^{-ijQ}\right],\\
+    C(q)&=\sum_{j=1}^{P}\left[k_{3j-2}e^{-ijQ}
+        +k_{3j-1}e^{i(j-1)Q}\right]
+\end{aligned}%
+}
+
+% BN-TRI-HERMITIAN
+\newcommand{\BandNetTriatomicHermitianIdentities}{%
+    e^{iQ}C=B^*,\qquad e^{iQ}B=C^*%
+}
+
+% BN-TRI-DYNAMIC
+\newcommand{\BandNetTriatomicDynamicMatrix}{%
+    \mathbf{D}(q)=-\mathbf{M}^{-1/2}\mathbf{F}(q)\mathbf{M}^{-1/2}%
+}
+
+% BN-TRI-FIVE
+\newcommand{\BandNetTriatomicFiveEntries}{%
+\begin{aligned}
+    A(q)&=-2\sum_{n=1}^{5}k_n+k_3\left(e^{iQ}+e^{-iQ}\right),\\
+    B(q)&=k_1+k_2e^{-iQ}+k_4e^{iQ}+k_5e^{-i2Q},\\
+    C(q)&=k_1e^{-iQ}+k_2+k_4e^{-i2Q}+k_5e^{iQ}
+\end{aligned}%
+}
+
+% BN-NORMALIZATION
+\newcommand{\BandNetWaveNumberNormalizations}{%
+    \hat q_{\mathrm{mono}}=\frac{qa}{\pi},\qquad
+    \hat q_{\mathrm{dia}}=\frac{2qd}{\pi},\qquad
+    \hat q_{\mathrm{tri}}=\frac{3qd}{\pi}%
+}

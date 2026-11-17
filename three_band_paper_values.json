@@ -1,0 +1,3467 @@
+{
+  "protocol": "corrected three-band v4",
+  "definitions": {
+    "showcase_table": "For each ascending band, RMSE=sqrt(mean_q((prediction-target)^2)), L1=mean_q(abs(prediction-target)), NRMSE=RMSE/(max_q(target)-min_q(target)); sum each quantity over the three bands. Same aggregation as historical one-/two-band showcase rows, using corrected stored q_hat grid and targets.",
+    "adopted_metric": "For each sample, mean over three bands of per-band RMSE / sqrt(mean_q(target^2)); population primary is arithmetic mean over samples. Wave-number columns excluded.",
+    "quantile": "Median and 95th percentile of per-sample adopted scores; NumPy quantile method=linear, checked against scores.json.",
+    "population_labels": {
+      "stratified": "test_sparse",
+      "uniform": "test_dense",
+      "boundary": "adversarial"
+    },
+    "ambiguity": "NRMSE alone does not identify range versus RMS normalization or band sum versus mean. The showcase table uses historical range-normalized band sums; population and generalization use adopted RMS-normalized band means. No zero-range fallback: this computation fails if any showcased band has zero range."
+  },
+  "grid": {
+    "source": "main-m5-data/q_hat.npy",
+    "count": 500,
+    "minimum": 0.001,
+    "maximum": 1.0
+  },
+  "showcase": [
+    {
+      "id": "tri-five-a",
+      "source": "main-m5/showcase/{predictions,per_band_errors}.npy and main-m5-data/showcase.{bands,labels}.npy",
+      "target_masses": [
+        1.0,
+        8.0,
+        5.0
+      ],
+      "target_stiffnesses": [
+        1.0,
+        6.0,
+        6.0,
+        4.0,
+        8.0
+      ],
+      "achieved_masses": [
+        1.0,
+        7.88075818221511,
+        4.982648415348479
+      ],
+      "achieved_stiffnesses": [
+        1.0,
+        6.488033091704813,
+        5.905899257845752,
+        4.594885040902509,
+        8.332087633330394
+      ],
+      "table_rmse_sum": 0.35790213819987793,
+      "table_l1_sum": 0.35089971763907674,
+      "table_nrmse_range_sum": 0.3094606699075898,
+      "adopted_primary": 0.029337934161434626,
+      "per_band_rmse": [
+        0.06958100434605052,
+        0.09621632584918641,
+        0.19210480800464097
+      ],
+      "per_band_l1": [
+        0.06608848198070107,
+        0.09454665954794284,
+        0.19026457611043285
+      ],
+      "per_band_target_range": [
+        2.773489574970841,
+        0.6294420606973192,
+        1.4607278050540105
+      ],
+      "per_band_target_rms": [
+        2.239964795255513,
+        3.2019557624547996,
+        7.141142842385686
+      ],
+      "per_band_adopted_error": [
+        0.031063436574284824,
+        0.03004923646272413,
+        0.026901129447294926
+      ]
+    },
+    {
+      "id": "tri-five-b",
+      "source": "main-m5/showcase/{predictions,per_band_errors}.npy and main-m5-data/showcase.{bands,labels}.npy",
+      "target_masses": [
+        1.0,
+        1.0,
+        7.0
+      ],
+      "target_stiffnesses": [
+        1.0,
+        2.0,
+        8.0,
+        1.0,
+        6.0
+      ],
+      "achieved_masses": [
+        1.0,
+        7.274896045859538,
+        1.0975662287838217
+      ],
+      "achieved_stiffnesses": [
+        1.0,
+        2.5901908871905817,
+        8.763268797783537,
+        1.0964959514306014,
+        6.8851512960812356
+      ],
+      "table_rmse_sum": 0.5535352767055178,
+      "table_l1_sum": 0.5490290884985419,
+      "table_nrmse_range_sum": 0.22889851508720505,
+      "adopted_primary": 0.03896180683309638,
+      "per_band_rmse": [
+        0.08453346988214762,
+        0.17944301944449173,
+        0.28955878737887847
+      ],
+      "per_band_l1": [
+        0.08076528314522115,
+        0.17872926772749584,
+        0.28953453762582493
+      ],
+      "per_band_target_range": [
+        2.6987512251996044,
+        3.3425136744199304,
+        2.0123581675572275
+      ],
+      "per_band_target_rms": [
+        2.1240008483777735,
+        5.500875418964749,
+        6.511996510915212
+      ],
+      "per_band_adopted_error": [
+        0.03979916954680639,
+        0.03262081137592141,
+        0.044465439576561315
+      ]
+    },
+    {
+      "id": "tri-five-c",
+      "source": "main-m5/showcase/{predictions,per_band_errors}.npy and main-m5-data/showcase.{bands,labels}.npy",
+      "target_masses": [
+        1.0,
+        4.0,
+        4.0
+      ],
+      "target_stiffnesses": [
+        1.0,
+        8.0,
+        4.0,
+        9.0,
+        4.0
+      ],
+      "achieved_masses": [
+        1.0,
+        3.9834953171475913,
+        3.9089789067961003
+      ],
+      "achieved_stiffnesses": [
+        1.0,
+        8.561971486368762,
+        3.8841754861194984,
+        8.814323648134765,
+        4.195762813866835
+      ],
+      "table_rmse_sum": 0.1732284450975185,
+      "table_l1_sum": 0.16838669580683724,
+      "table_nrmse_range_sum": 0.1931360014313284,
+      "adopted_primary": 0.012890626599283084,
+      "per_band_rmse": [
+        0.03385504027189599,
+        0.06927682863633251,
+        0.07009657618929
+      ],
+      "per_band_l1": [
+        0.03183076964634357,
+        0.06879094908039003,
+        0.06776497708010365
+      ],
+      "per_band_target_range": [
+        3.541217560907376,
+        0.6722485792975665,
+        0.8705127410162534
+      ],
+      "per_band_target_rms": [
+        2.93337584033907,
+        3.9404304996729906,
+        7.340320268525762
+      ],
+      "per_band_adopted_error": [
+        0.011541323756175297,
+        0.017581030459002302,
+        0.00954952558267165
+      ]
+    },
+    {
+      "id": "tri-five-d",
+      "source": "main-m5/showcase/{predictions,per_band_errors}.npy and main-m5-data/showcase.{bands,labels}.npy",
+      "target_masses": [
+        1.0,
+        6.0,
+        1.0
+      ],
+      "target_stiffnesses": [
+        1.0,
+        3.0,
+        0.0,
+        7.0,
+        9.0
+      ],
+      "achieved_masses": [
+        1.0,
+        5.776802556415877,
+        0.9555625467589093
+      ],
+      "achieved_stiffnesses": [
+        1.0,
+        2.5592299581873124,
+        0.36730869515637427,
+        7.412422750460151,
+        8.908394905620764
+      ],
+      "table_rmse_sum": 0.30555964623558884,
+      "table_l1_sum": 0.2833685757389105,
+      "table_nrmse_range_sum": 0.20994283054577756,
+      "adopted_primary": 0.02179574125091043,
+      "per_band_rmse": [
+        0.05930804005438504,
+        0.10664534064039692,
+        0.1396062655408069
+      ],
+      "per_band_l1": [
+        0.055988509087631394,
+        0.10220273293412692,
+        0.1251773337171522
+      ],
+      "per_band_target_range": [
+        2.569991784029311,
+        1.2030163928352158,
+        1.421400354846753
+      ],
+      "per_band_target_rms": [
+        2.2320813280828893,
+        5.5280733325079865,
+        7.1501667702162335
+      ],
+      "per_band_adopted_error": [
+        0.0265707343671586,
+        0.019291592970242646,
+        0.01952489641533004
+      ]
+    }
+  ],
+  "main_populations": {
+    "test_sparse": {
+      "source": "main-m5/test_sparse/scores.json",
+      "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+      "count": 125000,
+      "invalid_prediction_count": 0,
+      "primary": 0.02099911282004443,
+      "mean_per_band": [
+        0.025246565304611928,
+        0.01919877013695105,
+        0.018552003018570178
+      ],
+      "median_per_sample": 0.019350685572055923,
+      "p95_per_sample": 0.04120003650481895,
+      "maximum_per_sample": 0.23094362377777342,
+      "failures": [],
+      "parameter_mae_by_label": [
+        1.8802506261649208,
+        1.7049454499044105,
+        0.3825056521515854,
+        0.1522085612031283,
+        0.6249758537635456,
+        0.5286802962430157
+      ],
+      "inference_reconstruction_write_seconds": 73.66035339934751
+    },
+    "test_dense": {
+      "source": "main-m5/test_dense/scores.json",
+      "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+      "count": 125000,
+      "invalid_prediction_count": 0,
+      "primary": 0.02284865879004204,
+      "mean_per_band": [
+        0.025210608191061655,
+        0.02266742702806074,
+        0.020667941151003445
+      ],
+      "median_per_sample": 0.021271567498311755,
+      "p95_per_sample": 0.04693435737085234,
+      "maximum_per_sample": 0.22438578138132179,
+      "failures": [],
+      "parameter_mae_by_label": [
+        1.7293649038803076,
+        1.6903885532702834,
+        0.5206823015049811,
+        0.22260280486571024,
+        0.6222432135245511,
+        0.6637939684145806
+      ],
+      "inference_reconstruction_write_seconds": 72.97700957581401
+    },
+    "adversarial": {
+      "source": "main-m5/adversarial/scores.json",
+      "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+      "count": 96,
+      "invalid_prediction_count": 0,
+      "primary": 0.07961324006884712,
+      "mean_per_band": [
+        0.05832585430345911,
+        0.1076517520546126,
+        0.07286211384846959
+      ],
+      "median_per_sample": 0.042069448644503134,
+      "p95_per_sample": 0.31747717032445233,
+      "maximum_per_sample": 0.37941429626402057,
+      "failures": [],
+      "parameter_mae_by_label": [
+        2.259282546479163,
+        1.8774980725605366,
+        1.5489281870307787,
+        1.070512556611667,
+        1.9669883930109837,
+        1.8060541615912065
+      ],
+      "inference_reconstruction_write_seconds": 0.14432047586888075
+    },
+    "showcase": {
+      "source": "main-m5/showcase/scores.json",
+      "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+      "count": 4,
+      "invalid_prediction_count": 0,
+      "primary": 0.02574652721118112,
+      "mean_per_band": [
+        0.02724366606110626,
+        0.024885667816972608,
+        0.025110247755464485
+      ],
+      "median_per_sample": 0.025566837706172515,
+      "p95_per_sample": 0.03751822593234708,
+      "maximum_per_sample": 0.03896180683309634,
+      "failures": [],
+      "parameter_mae_by_label": [
+        1.65845999752024,
+        1.5138109755781723,
+        0.5202413767692111,
+        0.3351256872436653,
+        0.322370023664624,
+        0.3761517094144251
+      ],
+      "inference_reconstruction_write_seconds": 0.007974321022629738
+    }
+  },
+  "study": [
+    {
+      "interactions": 5,
+      "training_source": "study-m5/training.json",
+      "data_source": "study-m5-data/manifest.json",
+      "train_count": 100000,
+      "epochs": 100,
+      "best_epoch": 93,
+      "training_seconds_excluding_validation": 709.8996412949637,
+      "populations": {
+        "test_dense": {
+          "source": "study-m5/test_dense/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 5000,
+          "invalid_prediction_count": 0,
+          "primary": 0.013504375463040149,
+          "mean_per_band": [
+            0.013549784410037412,
+            0.013827492725710579,
+            0.013135849253372476
+          ],
+          "median_per_sample": 0.010623052749089229,
+          "p95_per_sample": 0.031200609185467992,
+          "maximum_per_sample": 0.2264308172810461,
+          "failures": [],
+          "parameter_mae_by_label": [
+            1.7601137012022172,
+            1.730440151836753,
+            0.5039955723233548,
+            0.23991531747270728,
+            0.7779858527166067,
+            0.6024517967624612
+          ],
+          "inference_reconstruction_write_seconds": 2.9548708382062614
+        },
+        "test_sparse": {
+          "source": "study-m5/test_sparse/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 5000,
+          "invalid_prediction_count": 0,
+          "primary": 0.019243846262296534,
+          "mean_per_band": [
+            0.025951141910175734,
+            0.016804094646714292,
+            0.014976302229999681
+          ],
+          "median_per_sample": 0.012367750173648356,
+          "p95_per_sample": 0.0683812206225324,
+          "maximum_per_sample": 0.2789049489235063,
+          "failures": [],
+          "parameter_mae_by_label": [
+            2.0973824700555204,
+            1.7630003140129213,
+            0.5578871217213622,
+            0.1610988910032332,
+            1.0551754660137778,
+            0.8415247533760916
+          ],
+          "inference_reconstruction_write_seconds": 2.938471782952547
+        },
+        "shared_m5_test_dense": {
+          "source": "study-m5/shared_m5_test_dense/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 10000,
+          "invalid_prediction_count": 0,
+          "primary": 0.013398628973543669,
+          "mean_per_band": [
+            0.013431611547675013,
+            0.01377758438103205,
+            0.012986690991923962
+          ],
+          "median_per_sample": 0.01059030996156108,
+          "p95_per_sample": 0.03126290213228121,
+          "maximum_per_sample": 0.1228344852479163,
+          "failures": [],
+          "parameter_mae_by_label": [
+            1.7523570577075693,
+            1.7140894801375863,
+            0.5064388226421952,
+            0.23368444471304642,
+            0.7864279884963735,
+            0.6190055609102124
+          ],
+          "inference_reconstruction_write_seconds": 6.297814747784287
+        },
+        "shared_m5_test_sparse": {
+          "source": "study-m5/shared_m5_test_sparse/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 10000,
+          "invalid_prediction_count": 0,
+          "primary": 0.019176148871404772,
+          "mean_per_band": [
+            0.02626636846033187,
+            0.016566566004384442,
+            0.014695512149497929
+          ],
+          "median_per_sample": 0.0122425221553062,
+          "p95_per_sample": 0.07020493357806518,
+          "maximum_per_sample": 0.16796587268423116,
+          "failures": [],
+          "parameter_mae_by_label": [
+            2.085297130342817,
+            1.7485650436736628,
+            0.529993479540492,
+            0.15741132855679696,
+            1.0361733542722935,
+            0.8164569920264417
+          ],
+          "inference_reconstruction_write_seconds": 5.912409256678075
+        },
+        "adversarial": {
+          "source": "study-m5/adversarial/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 96,
+          "invalid_prediction_count": 0,
+          "primary": 0.09264072025675917,
+          "mean_per_band": [
+            0.07262361133380302,
+            0.09964229777401211,
+            0.10565625166246244
+          ],
+          "median_per_sample": 0.07311624908027001,
+          "p95_per_sample": 0.2647315344110732,
+          "maximum_per_sample": 0.3748466163916159,
+          "failures": [],
+          "parameter_mae_by_label": [
+            1.9095581408947175,
+            1.894773326644489,
+            1.5691020539630254,
+            1.0729473770981401,
+            2.496850539316193,
+            2.1710132197224947
+          ],
+          "inference_reconstruction_write_seconds": 0.137648762203753
+        },
+        "showcase": {
+          "source": "study-m5/showcase/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 4,
+          "invalid_prediction_count": 0,
+          "primary": 0.014335795625829735,
+          "mean_per_band": [
+            0.016563334849290172,
+            0.01337415850705362,
+            0.013069893521145418
+          ],
+          "median_per_sample": 0.013887071716934919,
+          "p95_per_sample": 0.018193139062017805,
+          "maximum_per_sample": 0.018710881550993978,
+          "failures": [],
+          "parameter_mae_by_label": [
+            1.676011152647905,
+            1.585633525542217,
+            0.22710065347609154,
+            0.2991294526731303,
+            0.40863743202080877,
+            0.21698381230919372
+          ],
+          "inference_reconstruction_write_seconds": 0.008545588236302137
+        }
+      }
+    },
+    {
+      "interactions": 6,
+      "training_source": "study-m6/training.json",
+      "data_source": "study-m6-data/manifest.json",
+      "train_count": 100000,
+      "epochs": 100,
+      "best_epoch": 97,
+      "training_seconds_excluding_validation": 709.0167069486342,
+      "populations": {
+        "test_dense": {
+          "source": "study-m6/test_dense/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 5000,
+          "invalid_prediction_count": 0,
+          "primary": 0.01609021699471477,
+          "mean_per_band": [
+            0.01710737403713282,
+            0.013974670852828771,
+            0.017188606094182726
+          ],
+          "median_per_sample": 0.012646636782058136,
+          "p95_per_sample": 0.03755120606091559,
+          "maximum_per_sample": 0.1751116998334565,
+          "failures": [],
+          "parameter_mae_by_label": [
+            1.779903272888689,
+            1.7424721837504793,
+            0.8547634775717814,
+            0.2967077013878917,
+            1.357616671444339,
+            0.8388756992323588,
+            0.2640609439954459
+          ],
+          "inference_reconstruction_write_seconds": 2.892872876022011
+        },
+        "test_sparse": {
+          "source": "study-m6/test_sparse/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 5000,
+          "invalid_prediction_count": 0,
+          "primary": 0.01961058437185084,
+          "mean_per_band": [
+            0.02504946284139267,
+            0.017016503971851147,
+            0.016765786302308797
+          ],
+          "median_per_sample": 0.014465937346276204,
+          "p95_per_sample": 0.05371329209076061,
+          "maximum_per_sample": 0.139245736268539,
+          "failures": [],
+          "parameter_mae_by_label": [
+            1.9970025953790533,
+            1.6775612349745308,
+            0.8121234969836569,
+            0.18939582454893733,
+            1.3629523562449275,
+            0.8908010350212858,
+            0.18888208023316277
+          ],
+          "inference_reconstruction_write_seconds": 3.0428288555704057
+        },
+        "shared_m5_test_dense": {
+          "source": "study-m6/shared_m5_test_dense/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 10000,
+          "invalid_prediction_count": 0,
+          "primary": 0.0171768286719454,
+          "mean_per_band": [
+            0.017944083517745932,
+            0.016057056328229815,
+            0.017529346169860467
+          ],
+          "median_per_sample": 0.013860700428160528,
+          "p95_per_sample": 0.03733659779550102,
+          "maximum_per_sample": 0.16639153911082646,
+          "failures": [],
+          "inference_reconstruction_write_seconds": 5.895324878860265
+        },
+        "shared_m5_test_sparse": {
+          "source": "study-m6/shared_m5_test_sparse/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 10000,
+          "invalid_prediction_count": 0,
+          "primary": 0.021839375783573377,
+          "mean_per_band": [
+            0.03108584691398312,
+            0.01807722897946696,
+            0.016355051457270214
+          ],
+          "median_per_sample": 0.014814401744184514,
+          "p95_per_sample": 0.07116668133593144,
+          "maximum_per_sample": 0.19754114601142148,
+          "failures": [],
+          "inference_reconstruction_write_seconds": 5.936572843696922
+        },
+        "adversarial": {
+          "source": "study-m6/adversarial/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 99,
+          "invalid_prediction_count": 0,
+          "primary": 0.10689522044563476,
+          "mean_per_band": [
+            0.09196569871758292,
+            0.12761659345165238,
+            0.10110336916766893
+          ],
+          "median_per_sample": 0.06670219705347195,
+          "p95_per_sample": 0.34004178030081533,
+          "maximum_per_sample": 0.4015895564176519,
+          "failures": [],
+          "parameter_mae_by_label": [
+            2.679258586102203,
+            2.0990940237085174,
+            1.9196992421859642,
+            1.2039022293768709,
+            2.696265688665266,
+            2.2433181064676218,
+            1.2257980965430015
+          ],
+          "inference_reconstruction_write_seconds": 0.161391771864146
+        },
+        "showcase": {
+          "source": "study-m6/showcase/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 4,
+          "invalid_prediction_count": 0,
+          "primary": 0.010756039742460605,
+          "mean_per_band": [
+            0.00946742920212545,
+            0.011361611407456756,
+            0.011439078617799605
+          ],
+          "median_per_sample": 0.009490200254068465,
+          "p95_per_sample": 0.015451466303320711,
+          "maximum_per_sample": 0.016306529980871346,
+          "failures": [],
+          "parameter_mae_by_label": [
+            1.6068052839053841,
+            1.540236376298926,
+            0.5379871436720428,
+            0.18484397059183622,
+            0.6859409532800934,
+            0.4908047549110863,
+            0.30054461292426005
+          ],
+          "inference_reconstruction_write_seconds": 0.008280114736407995
+        }
+      }
+    },
+    {
+      "interactions": 7,
+      "training_source": "study-m7/training.json",
+      "data_source": "study-m7-data/manifest.json",
+      "train_count": 100000,
+      "epochs": 100,
+      "best_epoch": 82,
+      "training_seconds_excluding_validation": 711.217400373891,
+      "populations": {
+        "test_dense": {
+          "source": "study-m7/test_dense/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 5000,
+          "invalid_prediction_count": 0,
+          "primary": 0.021418429861869707,
+          "mean_per_band": [
+            0.022695153187703106,
+            0.022046853428383174,
+            0.019513282969522767
+          ],
+          "median_per_sample": 0.017447744675655644,
+          "p95_per_sample": 0.04721859153598516,
+          "maximum_per_sample": 0.3038935648536718,
+          "failures": [],
+          "parameter_mae_by_label": [
+            1.8650770376105408,
+            1.6964302615767377,
+            1.8712717073150793,
+            0.30344323891267877,
+            2.4174865357011144,
+            1.9026343138890396,
+            0.32237166012533075,
+            1.4558897448606574
+          ],
+          "inference_reconstruction_write_seconds": 2.9912225818261504
+        },
+        "test_sparse": {
+          "source": "study-m7/test_sparse/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 5000,
+          "invalid_prediction_count": 0,
+          "primary": 0.026649259934118378,
+          "mean_per_band": [
+            0.03440329135174884,
+            0.02479267969890303,
+            0.020751808751703127
+          ],
+          "median_per_sample": 0.020901558920987957,
+          "p95_per_sample": 0.0641652044220629,
+          "maximum_per_sample": 0.21647916889334695,
+          "failures": [],
+          "parameter_mae_by_label": [
+            2.2145140402840475,
+            1.7859973161871563,
+            1.6604565150200483,
+            0.24914197817309774,
+            1.9736845623100467,
+            2.072645253059459,
+            0.24202204193963966,
+            1.5917797240978018
+          ],
+          "inference_reconstruction_write_seconds": 3.0392003478482366
+        },
+        "shared_m5_test_dense": {
+          "source": "study-m7/shared_m5_test_dense/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 10000,
+          "invalid_prediction_count": 0,
+          "primary": 0.019696955114376847,
+          "mean_per_band": [
+            0.02137996133554748,
+            0.0196407349247788,
+            0.018070169082804306
+          ],
+          "median_per_sample": 0.016533164966437166,
+          "p95_per_sample": 0.04121294719797013,
+          "maximum_per_sample": 0.1604111735016931,
+          "failures": [],
+          "inference_reconstruction_write_seconds": 5.9237785753794014
+        },
+        "shared_m5_test_sparse": {
+          "source": "study-m7/shared_m5_test_sparse/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 10000,
+          "invalid_prediction_count": 0,
+          "primary": 0.03254763054526503,
+          "mean_per_band": [
+            0.046190851365709225,
+            0.028928626076396676,
+            0.022523414193689098
+          ],
+          "median_per_sample": 0.023251611502926962,
+          "p95_per_sample": 0.0902144032384098,
+          "maximum_per_sample": 0.3039661382327717,
+          "failures": [],
+          "inference_reconstruction_write_seconds": 5.89077286189422
+        },
+        "adversarial": {
+          "source": "study-m7/adversarial/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 100,
+          "invalid_prediction_count": 0,
+          "primary": 0.11062380899615841,
+          "mean_per_band": [
+            0.11315897535918734,
+            0.12283214881401648,
+            0.09588030281527135
+          ],
+          "median_per_sample": 0.07994888719573459,
+          "p95_per_sample": 0.31925986153322267,
+          "maximum_per_sample": 0.3763377627796922,
+          "failures": [],
+          "parameter_mae_by_label": [
+            3.0350935749712993,
+            2.2246925851805743,
+            2.5313916406954062,
+            1.0207507572709735,
+            3.489450108562813,
+            3.5791244152818917,
+            1.2518691761638603,
+            3.296772092692722
+          ],
+          "inference_reconstruction_write_seconds": 0.14228953421115875
+        },
+        "showcase": {
+          "source": "study-m7/showcase/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 4,
+          "invalid_prediction_count": 0,
+          "primary": 0.01671358823585876,
+          "mean_per_band": [
+            0.018053903471411822,
+            0.02006439910614357,
+            0.012022462130020888
+          ],
+          "median_per_sample": 0.018017919072370728,
+          "p95_per_sample": 0.02148274626590038,
+          "maximum_per_sample": 0.021600429795757627,
+          "failures": [],
+          "parameter_mae_by_label": [
+            1.899960335737923,
+            1.5516361071482168,
+            2.872860090624833,
+            0.264926807700875,
+            1.9498850301488524,
+            3.3083465675083588,
+            0.2918841744023144,
+            2.74070930411664
+          ],
+          "inference_reconstruction_write_seconds": 0.009026006795465946
+        }
+      }
+    },
+    {
+      "interactions": 8,
+      "training_source": "study-m8/training.json",
+      "data_source": "study-m8-data/manifest.json",
+      "train_count": 100000,
+      "epochs": 100,
+      "best_epoch": 99,
+      "training_seconds_excluding_validation": 712.037150526885,
+      "populations": {
+        "test_dense": {
+          "source": "study-m8/test_dense/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 5000,
+          "invalid_prediction_count": 0,
+          "primary": 0.016560616438255984,
+          "mean_per_band": [
+            0.0174689090464149,
+            0.016525145656856,
+            0.015687794611497056
+          ],
+          "median_per_sample": 0.012711705048082785,
+          "p95_per_sample": 0.04013481640251615,
+          "maximum_per_sample": 0.12977113469338195,
+          "failures": [],
+          "parameter_mae_by_label": [
+            1.8358285925841993,
+            1.7381711618170463,
+            1.8132512561219978,
+            0.2803608602574735,
+            2.734831757782732,
+            1.7717695371920164,
+            0.3164183927992452,
+            1.6325209909524085,
+            1.243960784718716
+          ],
+          "inference_reconstruction_write_seconds": 2.945107593201101
+        },
+        "test_sparse": {
+          "source": "study-m8/test_sparse/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 5000,
+          "invalid_prediction_count": 0,
+          "primary": 0.02267861301837736,
+          "mean_per_band": [
+            0.02863974482592015,
+            0.020950421595123572,
+            0.018445672634088337
+          ],
+          "median_per_sample": 0.01776477108496046,
+          "p95_per_sample": 0.056082393452781217,
+          "maximum_per_sample": 0.21757686591491213,
+          "failures": [],
+          "parameter_mae_by_label": [
+            2.137640937675577,
+            1.734501657294477,
+            1.479225680320093,
+            0.23049239364833712,
+            1.9762032121188728,
+            1.9196171507489195,
+            0.24156374552497664,
+            1.6094775679740445,
+            1.369501077912201
+          ],
+          "inference_reconstruction_write_seconds": 2.9308486157096922
+        },
+        "shared_m5_test_dense": {
+          "source": "study-m8/shared_m5_test_dense/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 10000,
+          "invalid_prediction_count": 0,
+          "primary": 0.017836597449379307,
+          "mean_per_band": [
+            0.01907639473505573,
+            0.017788815203946217,
+            0.016644582409136036
+          ],
+          "median_per_sample": 0.01474048244797913,
+          "p95_per_sample": 0.03853505488470652,
+          "maximum_per_sample": 0.17602082977334454,
+          "failures": [],
+          "inference_reconstruction_write_seconds": 5.903055812697858
+        },
+        "shared_m5_test_sparse": {
+          "source": "study-m8/shared_m5_test_sparse/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 10000,
+          "invalid_prediction_count": 0,
+          "primary": 0.030963499949550305,
+          "mean_per_band": [
+            0.040342079613900725,
+            0.028741987056625635,
+            0.023806433178124593
+          ],
+          "median_per_sample": 0.021986152787427486,
+          "p95_per_sample": 0.08311132289958802,
+          "maximum_per_sample": 0.2586761558330493,
+          "failures": [],
+          "inference_reconstruction_write_seconds": 5.905052831862122
+        },
+        "adversarial": {
+          "source": "study-m8/adversarial/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 101,
+          "invalid_prediction_count": 0,
+          "primary": 0.12146747886609029,
+          "mean_per_band": [
+            0.11513569978281193,
+            0.13059818668902454,
+            0.11866855012643436
+          ],
+          "median_per_sample": 0.0850306269349221,
+          "p95_per_sample": 0.35449332866559075,
+          "maximum_per_sample": 0.4013668918737498,
+          "failures": [],
+          "parameter_mae_by_label": [
+            3.2426958451059607,
+            2.275215498952211,
+            2.196050843307143,
+            1.0238418654764818,
+            3.555845006674507,
+            3.7707846591813023,
+            0.9210550364477911,
+            2.7909435063389827,
+            1.9761655066582997
+          ],
+          "inference_reconstruction_write_seconds": 0.17495613591745496
+        },
+        "showcase": {
+          "source": "study-m8/showcase/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 4,
+          "invalid_prediction_count": 0,
+          "primary": 0.01439057929239778,
+          "mean_per_band": [
+            0.014287665232420393,
+            0.01743776371362254,
+            0.011446308931150406
+          ],
+          "median_per_sample": 0.012056710614708144,
+          "p95_per_sample": 0.024652589305669305,
+          "maximum_per_sample": 0.02619451127246097,
+          "failures": [],
+          "parameter_mae_by_label": [
+            1.990098139052921,
+            1.5686250751294084,
+            3.2980023530836156,
+            0.2535074390928121,
+            2.078896388631378,
+            3.6737142384944077,
+            0.26038172419764627,
+            2.2659405323577997,
+            0.7169534015271748
+          ],
+          "inference_reconstruction_write_seconds": 0.009006416890770197
+        }
+      }
+    },
+    {
+      "interactions": 9,
+      "training_source": "study-m9/training.json",
+      "data_source": "study-m9-data/manifest.json",
+      "train_count": 100000,
+      "epochs": 100,
+      "best_epoch": 99,
+      "training_seconds_excluding_validation": 716.9997589671984,
+      "populations": {
+        "test_dense": {
+          "source": "study-m9/test_dense/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 5000,
+          "invalid_prediction_count": 0,
+          "primary": 0.017110230810768918,
+          "mean_per_band": [
+            0.018014750744034566,
+            0.017126313040509118,
+            0.016189628647763025
+          ],
+          "median_per_sample": 0.014524076787247276,
+          "p95_per_sample": 0.035960225384191,
+          "maximum_per_sample": 0.1254786178007595,
+          "failures": [],
+          "parameter_mae_by_label": [
+            1.7619194648092533,
+            1.8413540461744469,
+            1.612727963974868,
+            0.3681504542900697,
+            2.410874730624941,
+            2.5201404612944134,
+            0.29046397391563744,
+            2.610226627300332,
+            1.9962104545845347,
+            0.32944836766803565
+          ],
+          "inference_reconstruction_write_seconds": 2.9814421804621816
+        },
+        "test_sparse": {
+          "source": "study-m9/test_sparse/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 5000,
+          "invalid_prediction_count": 0,
+          "primary": 0.023773448707486905,
+          "mean_per_band": [
+            0.03090710589833701,
+            0.021101593156847103,
+            0.019311647067276554
+          ],
+          "median_per_sample": 0.019930415183280474,
+          "p95_per_sample": 0.051804831089571825,
+          "maximum_per_sample": 0.2698900796255654,
+          "failures": [],
+          "parameter_mae_by_label": [
+            1.7458244611311904,
+            2.140029237892691,
+            1.5755639582164878,
+            0.2927034284256315,
+            2.3350655300816956,
+            2.232662971581294,
+            0.24297107217837083,
+            2.6901263327924125,
+            1.7805728627518158,
+            0.2686581424370346
+          ],
+          "inference_reconstruction_write_seconds": 2.9369044341146946
+        },
+        "shared_m5_test_dense": {
+          "source": "study-m9/shared_m5_test_dense/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 10000,
+          "invalid_prediction_count": 0,
+          "primary": 0.021601898997442193,
+          "mean_per_band": [
+            0.027344125452288627,
+            0.019868742743066204,
+            0.01759282879697185
+          ],
+          "median_per_sample": 0.019210879639793798,
+          "p95_per_sample": 0.04129137006781753,
+          "maximum_per_sample": 0.13510327660148444,
+          "failures": [],
+          "inference_reconstruction_write_seconds": 5.886159433051944
+        },
+        "shared_m5_test_sparse": {
+          "source": "study-m9/shared_m5_test_sparse/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 10000,
+          "invalid_prediction_count": 0,
+          "primary": 0.03622238610332682,
+          "mean_per_band": [
+            0.048420694789594085,
+            0.03213351598609436,
+            0.028112947534292027
+          ],
+          "median_per_sample": 0.028452146124585943,
+          "p95_per_sample": 0.08708353388464501,
+          "maximum_per_sample": 0.3010836222775834,
+          "failures": [],
+          "inference_reconstruction_write_seconds": 5.929394552949816
+        },
+        "adversarial": {
+          "source": "study-m9/adversarial/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 102,
+          "invalid_prediction_count": 0,
+          "primary": 0.11169753159530213,
+          "mean_per_band": [
+            0.11892788462109563,
+            0.11465666122726399,
+            0.10150804893754681
+          ],
+          "median_per_sample": 0.07669589796885554,
+          "p95_per_sample": 0.3311276964886793,
+          "maximum_per_sample": 0.3480361983194193,
+          "failures": [],
+          "parameter_mae_by_label": [
+            2.055224376925988,
+            2.9764712470016015,
+            2.6774940428211234,
+            0.9335294741862324,
+            3.8655794572690767,
+            4.473460757659601,
+            0.9677737010549842,
+            3.9638809922070624,
+            1.7219022739645966,
+            0.8826402141661046
+          ],
+          "inference_reconstruction_write_seconds": 0.15815841499716043
+        },
+        "showcase": {
+          "source": "study-m9/showcase/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 4,
+          "invalid_prediction_count": 0,
+          "primary": 0.019250258953100258,
+          "mean_per_band": [
+            0.020235027987574532,
+            0.021181512031546862,
+            0.016334236840179376
+          ],
+          "median_per_sample": 0.017016786830110847,
+          "p95_per_sample": 0.027136619346530534,
+          "maximum_per_sample": 0.028671843985794542,
+          "failures": [],
+          "parameter_mae_by_label": [
+            2.0213996934514786,
+            2.547076936294511,
+            1.6965987621199314,
+            0.46139864621757687,
+            2.5897691880294214,
+            5.669033088094226,
+            0.08540545953586876,
+            3.051453485771964,
+            0.3546673926764201,
+            0.21163975651400113
+          ],
+          "inference_reconstruction_write_seconds": 0.010318708140403032
+        }
+      }
+    },
+    {
+      "interactions": 10,
+      "training_source": "study-m10/training.json",
+      "data_source": "study-m10-data/manifest.json",
+      "train_count": 100000,
+      "epochs": 100,
+      "best_epoch": 96,
+      "training_seconds_excluding_validation": 710.436717890203,
+      "populations": {
+        "test_dense": {
+          "source": "study-m10/test_dense/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 5000,
+          "invalid_prediction_count": 0,
+          "primary": 0.01938890115912815,
+          "mean_per_band": [
+            0.020044519059522196,
+            0.019533541717184112,
+            0.01858864270067811
+          ],
+          "median_per_sample": 0.016311196718328,
+          "p95_per_sample": 0.04206868276678516,
+          "maximum_per_sample": 0.14626591022437646,
+          "failures": [],
+          "parameter_mae_by_label": [
+            1.8120584962975528,
+            1.7503374737265065,
+            1.9936834067234148,
+            0.557586255956258,
+            2.0719437139751813,
+            2.9633651002642365,
+            0.4238080377682909,
+            3.3693536127510773,
+            2.0717261988989373,
+            0.40364110375194,
+            1.8145791413818542
+          ],
+          "inference_reconstruction_write_seconds": 2.9141523791477084
+        },
+        "test_sparse": {
+          "source": "study-m10/test_sparse/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 5000,
+          "invalid_prediction_count": 0,
+          "primary": 0.028953033692047967,
+          "mean_per_band": [
+            0.03979849917938861,
+            0.024664598143874564,
+            0.022396003752880672
+          ],
+          "median_per_sample": 0.024032708513304316,
+          "p95_per_sample": 0.06608184484219251,
+          "maximum_per_sample": 0.1979105839474483,
+          "failures": [],
+          "parameter_mae_by_label": [
+            2.1427502989333633,
+            1.766929080664983,
+            1.8255925366303039,
+            0.36460491853675725,
+            2.1687461622322326,
+            2.3510883045588726,
+            0.3487208598844449,
+            3.9367821364412885,
+            2.1080582662073972,
+            0.3025735989270966,
+            1.9515445235300588
+          ],
+          "inference_reconstruction_write_seconds": 2.938731478061527
+        },
+        "shared_m5_test_dense": {
+          "source": "study-m10/shared_m5_test_dense/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 10000,
+          "invalid_prediction_count": 0,
+          "primary": 0.023438890586753622,
+          "mean_per_band": [
+            0.029210455449483277,
+            0.020443399152888266,
+            0.020662817157889313
+          ],
+          "median_per_sample": 0.02045046757863655,
+          "p95_per_sample": 0.046194553923713556,
+          "maximum_per_sample": 0.1427593791961832,
+          "failures": [],
+          "inference_reconstruction_write_seconds": 6.025582616217434
+        },
+        "shared_m5_test_sparse": {
+          "source": "study-m10/shared_m5_test_sparse/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 10000,
+          "invalid_prediction_count": 0,
+          "primary": 0.040671102847312686,
+          "mean_per_band": [
+            0.05544240760575217,
+            0.035400437702802844,
+            0.03117046323338334
+          ],
+          "median_per_sample": 0.033763397105219375,
+          "p95_per_sample": 0.09038723930786502,
+          "maximum_per_sample": 0.2671405477210886,
+          "failures": [],
+          "inference_reconstruction_write_seconds": 6.588917842134833
+        },
+        "adversarial": {
+          "source": "study-m10/adversarial/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 103,
+          "invalid_prediction_count": 0,
+          "primary": 0.12650612366378183,
+          "mean_per_band": [
+            0.1389196539604248,
+            0.12034588773378035,
+            0.12025282929714032
+          ],
+          "median_per_sample": 0.09483291549133872,
+          "p95_per_sample": 0.3500041574531179,
+          "maximum_per_sample": 0.40258435732250764,
+          "failures": [],
+          "parameter_mae_by_label": [
+            3.576983616163025,
+            2.548056669563095,
+            2.508170230108252,
+            1.1097863791300926,
+            3.743821229968491,
+            4.155532196938218,
+            0.8971439475533123,
+            4.043453336096965,
+            1.56883101123832,
+            0.8361177412820405,
+            1.1132040208710956
+          ],
+          "inference_reconstruction_write_seconds": 0.16319427778944373
+        },
+        "showcase": {
+          "source": "study-m10/showcase/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 4,
+          "invalid_prediction_count": 0,
+          "primary": 0.021262940700636966,
+          "mean_per_band": [
+            0.021845033201508306,
+            0.020446691888906306,
+            0.021497097011496276
+          ],
+          "median_per_sample": 0.017297596130442704,
+          "p95_per_sample": 0.03335289568137537,
+          "maximum_per_sample": 0.0357503433052492,
+          "failures": [],
+          "parameter_mae_by_label": [
+            2.020248464912978,
+            1.6601136845426494,
+            1.9286316521872289,
+            0.27065330570459273,
+            2.392645866081703,
+            4.93125831631656,
+            0.10997436108436495,
+            2.7350609356815743,
+            0.3789047609746867,
+            0.20394130032804814,
+            0.14269396254177974
+          ],
+          "inference_reconstruction_write_seconds": 0.009877229109406471
+        }
+      }
+    },
+    {
+      "interactions": 11,
+      "training_source": "study-m11/training.json",
+      "data_source": "study-m11-data/manifest.json",
+      "train_count": 100000,
+      "epochs": 100,
+      "best_epoch": 94,
+      "training_seconds_excluding_validation": 1870.8815627521835,
+      "populations": {
+        "test_dense": {
+          "source": "study-m11/test_dense/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 5000,
+          "invalid_prediction_count": 0,
+          "primary": 0.02120879208056942,
+          "mean_per_band": [
+            0.022860050950076156,
+            0.020625753701973122,
+            0.02014057158965892
+          ],
+          "median_per_sample": 0.018284555995788952,
+          "p95_per_sample": 0.04329341487432446,
+          "maximum_per_sample": 0.1164891722702372,
+          "failures": [],
+          "parameter_mae_by_label": [
+            1.7417718214461893,
+            1.6818165321214913,
+            1.922370701267679,
+            0.48076716175015766,
+            2.2537704778548,
+            3.9714999800346362,
+            0.4713006870508731,
+            4.372872596837117,
+            2.290040606110057,
+            0.4138892116412339,
+            2.312636519916621,
+            2.618083401420556
+          ],
+          "inference_reconstruction_write_seconds": 2.998365650884807
+        },
+        "test_sparse": {
+          "source": "study-m11/test_sparse/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 5000,
+          "invalid_prediction_count": 0,
+          "primary": 0.0315825307134319,
+          "mean_per_band": [
+            0.043249542714197134,
+            0.026663709402450643,
+            0.024834340023647948
+          ],
+          "median_per_sample": 0.026675402683674077,
+          "p95_per_sample": 0.06718352971485217,
+          "maximum_per_sample": 0.17428376293470596,
+          "failures": [],
+          "parameter_mae_by_label": [
+            2.1969339183617014,
+            1.8020922308489713,
+            1.9669279185679225,
+            0.3489735469977568,
+            2.2990001639201934,
+            2.3967003110026948,
+            0.42881189236222617,
+            5.102211289451823,
+            2.354328644326646,
+            0.3460171130261876,
+            2.230137766859603,
+            2.0621966952634847
+          ],
+          "inference_reconstruction_write_seconds": 3.124297372531146
+        },
+        "shared_m5_test_dense": {
+          "source": "study-m11/shared_m5_test_dense/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 10000,
+          "invalid_prediction_count": 0,
+          "primary": 0.037105253399706974,
+          "mean_per_band": [
+            0.05425555257684781,
+            0.030674375502371787,
+            0.026385832119900948
+          ],
+          "median_per_sample": 0.033882582599769534,
+          "p95_per_sample": 0.06679562185777044,
+          "maximum_per_sample": 0.17848016494112198,
+          "failures": [],
+          "inference_reconstruction_write_seconds": 6.0807587946765125
+        },
+        "shared_m5_test_sparse": {
+          "source": "study-m11/shared_m5_test_sparse/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 10000,
+          "invalid_prediction_count": 0,
+          "primary": 0.0639409323999792,
+          "mean_per_band": [
+            0.08520881183008489,
+            0.05439314382042147,
+            0.05222084154943123
+          ],
+          "median_per_sample": 0.053991677323105045,
+          "p95_per_sample": 0.13647990664931967,
+          "maximum_per_sample": 0.2758402534976434,
+          "failures": [],
+          "inference_reconstruction_write_seconds": 6.230357411783189
+        },
+        "adversarial": {
+          "source": "study-m11/adversarial/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 104,
+          "invalid_prediction_count": 0,
+          "primary": 0.1313481279177346,
+          "mean_per_band": [
+            0.15067067815329838,
+            0.13054800142508982,
+            0.11282570417481551
+          ],
+          "median_per_sample": 0.10978362527480692,
+          "p95_per_sample": 0.3063130951544536,
+          "maximum_per_sample": 0.3734111665330517,
+          "failures": [],
+          "parameter_mae_by_label": [
+            3.8113936483612587,
+            2.641767428702484,
+            4.034316242252062,
+            0.996032346222096,
+            4.168349950234142,
+            4.409198264943553,
+            1.35324314313899,
+            5.7876913017607485,
+            1.8410653815452636,
+            0.8962397346921743,
+            1.2940922427987192,
+            1.2641436730995916
+          ],
+          "inference_reconstruction_write_seconds": 0.16702884482219815
+        },
+        "showcase": {
+          "source": "study-m11/showcase/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 4,
+          "invalid_prediction_count": 0,
+          "primary": 0.03297102552619909,
+          "mean_per_band": [
+            0.047002905407713444,
+            0.028565021619032738,
+            0.023345149551851095
+          ],
+          "median_per_sample": 0.030977077378365837,
+          "p95_per_sample": 0.046625762350784174,
+          "maximum_per_sample": 0.04825805867653443,
+          "failures": [],
+          "parameter_mae_by_label": [
+            2.436693264117026,
+            1.6878091128969785,
+            2.461635539178832,
+            0.35410558045585083,
+            2.2986205450487267,
+            5.30425730384302,
+            0.5703668353919337,
+            5.0723847424960375,
+            0.3792427573099144,
+            0.21509496634602093,
+            0.2742989785127897,
+            0.0532470123932335
+          ],
+          "inference_reconstruction_write_seconds": 0.0095837926492095
+        }
+      }
+    },
+    {
+      "interactions": 12,
+      "training_source": "study-m12/training.json",
+      "data_source": "study-m12-data/manifest.json",
+      "train_count": 100000,
+      "epochs": 100,
+      "best_epoch": 87,
+      "training_seconds_excluding_validation": 2327.8126023211516,
+      "populations": {
+        "test_dense": {
+          "source": "study-m12/test_dense/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 5000,
+          "invalid_prediction_count": 0,
+          "primary": 0.016952232266984994,
+          "mean_per_band": [
+            0.01784051724466012,
+            0.015981294126997198,
+            0.0170348854292977
+          ],
+          "median_per_sample": 0.014298223472624546,
+          "p95_per_sample": 0.03551083511507603,
+          "maximum_per_sample": 0.16063436065723458,
+          "failures": [],
+          "parameter_mae_by_label": [
+            1.7104191661458703,
+            1.6736046221914602,
+            2.125296554134066,
+            0.43445580927321525,
+            2.2754968475608526,
+            3.4656414958155213,
+            0.38570585141456754,
+            2.966832428843125,
+            2.411076748242666,
+            0.499001802665609,
+            2.842558728305454,
+            2.261440441857159,
+            0.6192357603488402
+          ],
+          "inference_reconstruction_write_seconds": 2.9672856307588518
+        },
+        "test_sparse": {
+          "source": "study-m12/test_sparse/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 5000,
+          "invalid_prediction_count": 0,
+          "primary": 0.026016936361997534,
+          "mean_per_band": [
+            0.03443788741837828,
+            0.021684288600721854,
+            0.021928633066892418
+          ],
+          "median_per_sample": 0.022468731806916553,
+          "p95_per_sample": 0.05229357487967074,
+          "maximum_per_sample": 0.16538758259027256,
+          "failures": [],
+          "parameter_mae_by_label": [
+            2.181374825086222,
+            1.7972691985905862,
+            2.653575925404061,
+            0.3890210934286487,
+            2.3531074920693835,
+            2.357186525794237,
+            0.351482073394423,
+            2.4093125423389337,
+            2.252251021986656,
+            0.3370170907022575,
+            2.881003982777154,
+            2.173639731570856,
+            0.370797704598728
+          ],
+          "inference_reconstruction_write_seconds": 3.0281104086898267
+        },
+        "shared_m5_test_dense": {
+          "source": "study-m12/shared_m5_test_dense/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 10000,
+          "invalid_prediction_count": 0,
+          "primary": 0.02435339785538296,
+          "mean_per_band": [
+            0.02939141599719531,
+            0.021742321298033426,
+            0.021926456270920193
+          ],
+          "median_per_sample": 0.02236617497824764,
+          "p95_per_sample": 0.043984223059916255,
+          "maximum_per_sample": 0.17050593942611147,
+          "failures": [],
+          "inference_reconstruction_write_seconds": 6.085631069261581
+        },
+        "shared_m5_test_sparse": {
+          "source": "study-m12/shared_m5_test_sparse/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 10000,
+          "invalid_prediction_count": 0,
+          "primary": 0.04452470704167016,
+          "mean_per_band": [
+            0.06311419614342076,
+            0.040056742428366696,
+            0.030403182553222916
+          ],
+          "median_per_sample": 0.036022807635228596,
+          "p95_per_sample": 0.10264253148155827,
+          "maximum_per_sample": 0.2631162154356718,
+          "failures": [],
+          "inference_reconstruction_write_seconds": 5.920426680706441
+        },
+        "adversarial": {
+          "source": "study-m12/adversarial/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 105,
+          "invalid_prediction_count": 0,
+          "primary": 0.12328317157944675,
+          "mean_per_band": [
+            0.14645183753543553,
+            0.11308488420955708,
+            0.11031279299334762
+          ],
+          "median_per_sample": 0.10077666873584139,
+          "p95_per_sample": 0.24999357594794538,
+          "maximum_per_sample": 0.31342410692952277,
+          "failures": [],
+          "parameter_mae_by_label": [
+            3.8622813775635207,
+            2.989318370345035,
+            3.2617334661120143,
+            1.2978404066812654,
+            3.619321578555855,
+            4.157016698856895,
+            1.246709553407559,
+            2.603394895820257,
+            1.5587588095827034,
+            0.942333015222364,
+            1.7663121854778125,
+            1.568492310088704,
+            0.5185092871097688
+          ],
+          "inference_reconstruction_write_seconds": 0.15964608313515782
+        },
+        "showcase": {
+          "source": "study-m12/showcase/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 4,
+          "invalid_prediction_count": 0,
+          "primary": 0.023809009637057295,
+          "mean_per_band": [
+            0.02396843879229635,
+            0.026148965831394474,
+            0.021309624287481066
+          ],
+          "median_per_sample": 0.02382530569403203,
+          "p95_per_sample": 0.032449538333945115,
+          "maximum_per_sample": 0.03305864639727416,
+          "failures": [],
+          "parameter_mae_by_label": [
+            2.0028589557192094,
+            1.6196985706162281,
+            3.549216695285615,
+            0.38890658849646986,
+            1.941567922722347,
+            5.002641346766094,
+            0.2836031937993203,
+            2.59796788537579,
+            0.18445525422084835,
+            0.1430669680153141,
+            0.316519750802218,
+            0.2808557289642421,
+            0.003748495618627382
+          ],
+          "inference_reconstruction_write_seconds": 0.014646975789219141
+        }
+      }
+    },
+    {
+      "interactions": 13,
+      "training_source": "study-m13/training.json",
+      "data_source": "study-m13-data/manifest.json",
+      "train_count": 100000,
+      "epochs": 100,
+      "best_epoch": 95,
+      "training_seconds_excluding_validation": 2309.636425322853,
+      "populations": {
+        "test_dense": {
+          "source": "study-m13/test_dense/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 5000,
+          "invalid_prediction_count": 0,
+          "primary": 0.019030785257514594,
+          "mean_per_band": [
+            0.020424050764895472,
+            0.018490749550856434,
+            0.018177555456791852
+          ],
+          "median_per_sample": 0.016138833526713203,
+          "p95_per_sample": 0.03860584998140358,
+          "maximum_per_sample": 0.1749363497478232,
+          "failures": [],
+          "parameter_mae_by_label": [
+            1.7573143191790215,
+            1.7177051729964279,
+            3.345656923316267,
+            0.46850876793089685,
+            2.805111144754778,
+            4.059326676044331,
+            0.3735304332154401,
+            3.1834872454658543,
+            2.3646971210276133,
+            0.5649074563849172,
+            2.877783344719088,
+            2.5957196658513353,
+            0.4611846125775711,
+            2.2236437786964247
+          ],
+          "inference_reconstruction_write_seconds": 3.013891021721065
+        },
+        "test_sparse": {
+          "source": "study-m13/test_sparse/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 5000,
+          "invalid_prediction_count": 0,
+          "primary": 0.027896329579793645,
+          "mean_per_band": [
+            0.03752469395909757,
+            0.024561926007482516,
+            0.021602368772801
+          ],
+          "median_per_sample": 0.024850241827537832,
+          "p95_per_sample": 0.05142546506331733,
+          "maximum_per_sample": 0.15874914613927357,
+          "failures": [],
+          "parameter_mae_by_label": [
+            1.8001202297556966,
+            2.046230666501778,
+            4.142020724415569,
+            0.38577891838161715,
+            2.2456432430835505,
+            2.413554153473346,
+            0.3633558975587157,
+            2.3385350860048244,
+            2.5493070618542073,
+            0.38031954530740025,
+            2.607539103109101,
+            2.378339351933725,
+            0.34617606088428177,
+            2.32793502511014
+          ],
+          "inference_reconstruction_write_seconds": 3.139057459309697
+        },
+        "shared_m5_test_dense": {
+          "source": "study-m13/shared_m5_test_dense/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 10000,
+          "invalid_prediction_count": 0,
+          "primary": 0.034699672628335905,
+          "mean_per_band": [
+            0.050691662259255976,
+            0.02890526525431852,
+            0.02450209037143338
+          ],
+          "median_per_sample": 0.03362825716559529,
+          "p95_per_sample": 0.05193343480883831,
+          "maximum_per_sample": 0.1649549483660018,
+          "failures": [],
+          "inference_reconstruction_write_seconds": 6.180902182124555
+        },
+        "shared_m5_test_sparse": {
+          "source": "study-m13/shared_m5_test_sparse/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 10000,
+          "invalid_prediction_count": 0,
+          "primary": 0.05734018596845682,
+          "mean_per_band": [
+            0.07833743518553993,
+            0.05595832653552307,
+            0.03772479618430712
+          ],
+          "median_per_sample": 0.04974684897522373,
+          "p95_per_sample": 0.11551385576421871,
+          "maximum_per_sample": 0.3406568712872331,
+          "failures": [],
+          "inference_reconstruction_write_seconds": 6.410812088288367
+        },
+        "adversarial": {
+          "source": "study-m13/adversarial/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 106,
+          "invalid_prediction_count": 0,
+          "primary": 0.12455324576704517,
+          "mean_per_band": [
+            0.15815845719884664,
+            0.116290208083395,
+            0.09921107201889391
+          ],
+          "median_per_sample": 0.09780972075139438,
+          "p95_per_sample": 0.2606325544814775,
+          "maximum_per_sample": 0.3598938933666065,
+          "failures": [],
+          "parameter_mae_by_label": [
+            2.153224420012198,
+            3.215870473355573,
+            3.4372072699714313,
+            1.1115571864941487,
+            3.8814548986317883,
+            4.1071682570738846,
+            1.269782603241539,
+            1.975134523188783,
+            2.1755910878982565,
+            0.8588683857127544,
+            1.3566509275615333,
+            1.4502534211630207,
+            0.49872370736839944,
+            1.865264771094772
+          ],
+          "inference_reconstruction_write_seconds": 0.155316601973027
+        },
+        "showcase": {
+          "source": "study-m13/showcase/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 4,
+          "invalid_prediction_count": 0,
+          "primary": 0.035656850957229994,
+          "mean_per_band": [
+            0.0503714025834001,
+            0.03302090573646728,
+            0.0235782445518226
+          ],
+          "median_per_sample": 0.035646645187756565,
+          "p95_per_sample": 0.050770933407854005,
+          "maximum_per_sample": 0.05181175083051845,
+          "failures": [],
+          "parameter_mae_by_label": [
+            2.158763993725445,
+            2.6035488331749335,
+            3.7948268893842343,
+            0.4676433915952951,
+            3.993507740867363,
+            3.7049258214599767,
+            0.6290560902768285,
+            1.754525007378556,
+            1.332165711253308,
+            0.3066046404854592,
+            0.21311876118610132,
+            0.5444521029316938,
+            0.007611107180390171,
+            0.3370834315935217
+          ],
+          "inference_reconstruction_write_seconds": 0.009298720862716436
+        }
+      }
+    },
+    {
+      "interactions": 14,
+      "training_source": "study-m14/training.json",
+      "data_source": "study-m14-data/manifest.json",
+      "train_count": 100000,
+      "epochs": 100,
+      "best_epoch": 95,
+      "training_seconds_excluding_validation": 2170.5282082180493,
+      "populations": {
+        "test_dense": {
+          "source": "study-m14/test_dense/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 5000,
+          "invalid_prediction_count": 0,
+          "primary": 0.019461289702150362,
+          "mean_per_band": [
+            0.019995236374442532,
+            0.020473886255931367,
+            0.01791474647607721
+          ],
+          "median_per_sample": 0.016965398285793284,
+          "p95_per_sample": 0.04026749401867927,
+          "maximum_per_sample": 0.14882896195211,
+          "failures": [],
+          "parameter_mae_by_label": [
+            1.679514246465782,
+            1.7029725114256336,
+            2.744987498202756,
+            0.459784795282268,
+            2.5879869241731184,
+            3.9962542922713524,
+            0.3678899329053341,
+            4.490985425585188,
+            2.692001723480309,
+            0.4388802474480671,
+            2.4159657131488443,
+            2.306629324785031,
+            0.34829994927107183,
+            2.4655763782445588,
+            2.384292099684814
+          ],
+          "inference_reconstruction_write_seconds": 3.2030951376073062
+        },
+        "test_sparse": {
+          "source": "study-m14/test_sparse/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 5000,
+          "invalid_prediction_count": 0,
+          "primary": 0.027660065763036125,
+          "mean_per_band": [
+            0.038640897454651206,
+            0.023465520298562997,
+            0.020873779535894137
+          ],
+          "median_per_sample": 0.024390672792377548,
+          "p95_per_sample": 0.05232387169743858,
+          "maximum_per_sample": 0.16889241592196835,
+          "failures": [],
+          "parameter_mae_by_label": [
+            1.7336157881245633,
+            2.031586532957235,
+            2.305784296977268,
+            0.38519721813294977,
+            2.4365311834536842,
+            2.4642815298240675,
+            0.36940081773849265,
+            5.736808554573706,
+            2.4086048480937468,
+            0.3630604818054512,
+            2.61282574719922,
+            2.3974339610476,
+            0.3317508427166962,
+            2.540469205768038,
+            2.228361179198074
+          ],
+          "inference_reconstruction_write_seconds": 3.109608143568039
+        },
+        "shared_m5_test_dense": {
+          "source": "study-m14/shared_m5_test_dense/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 10000,
+          "invalid_prediction_count": 0,
+          "primary": 0.054265659509211764,
+          "mean_per_band": [
+            0.09592831622386937,
+            0.037522529184831864,
+            0.02934613311893392
+          ],
+          "median_per_sample": 0.05260524571408689,
+          "p95_per_sample": 0.07906980179394918,
+          "maximum_per_sample": 0.23910123413438178,
+          "failures": [],
+          "inference_reconstruction_write_seconds": 6.21960257133469
+        },
+        "shared_m5_test_sparse": {
+          "source": "study-m14/shared_m5_test_sparse/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 10000,
+          "invalid_prediction_count": 0,
+          "primary": 0.07767330229113836,
+          "mean_per_band": [
+            0.11923244639543955,
+            0.06456926152041327,
+            0.0492181989575626
+          ],
+          "median_per_sample": 0.0692224687870784,
+          "p95_per_sample": 0.15194966164635157,
+          "maximum_per_sample": 0.3061610603613049,
+          "failures": [],
+          "inference_reconstruction_write_seconds": 6.22470355918631
+        },
+        "adversarial": {
+          "source": "study-m14/adversarial/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 107,
+          "invalid_prediction_count": 0,
+          "primary": 0.12470633569379261,
+          "mean_per_band": [
+            0.17005855149153515,
+            0.1069340980775353,
+            0.09712635751230748
+          ],
+          "median_per_sample": 0.11163315582821805,
+          "p95_per_sample": 0.2385010930352575,
+          "maximum_per_sample": 0.3219063433029298,
+          "failures": [],
+          "parameter_mae_by_label": [
+            2.149019096088826,
+            3.322589909554165,
+            3.8565566361033556,
+            1.0516860900676557,
+            4.0507361366081005,
+            4.413872573444564,
+            1.3664202439997661,
+            6.51856125413186,
+            2.036890515849702,
+            0.997291198046941,
+            2.0687899326254398,
+            1.5242602439631956,
+            0.6738361814832361,
+            1.6915836139569311,
+            1.1445978970040667
+          ],
+          "inference_reconstruction_write_seconds": 0.1515228347852826
+        },
+        "showcase": {
+          "source": "study-m14/showcase/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 4,
+          "invalid_prediction_count": 0,
+          "primary": 0.05278529171779716,
+          "mean_per_band": [
+            0.08923366142382871,
+            0.038408942216729774,
+            0.030713271512832995
+          ],
+          "median_per_sample": 0.05069527964332299,
+          "p95_per_sample": 0.07205038842428525,
+          "maximum_per_sample": 0.07557259666359596,
+          "failures": [],
+          "parameter_mae_by_label": [
+            2.075012454219931,
+            3.0288716684693044,
+            2.2530392242709505,
+            0.9559131567238259,
+            5.062855853161576,
+            6.0341958362663055,
+            0.7062756052150216,
+            7.360415741942895,
+            1.4969786699353518,
+            0.3491364038464808,
+            1.4089505140306504,
+            0.4294520688805217,
+            0.03232090745628314,
+            0.4245277411842592,
+            0.1056776886803372
+          ],
+          "inference_reconstruction_write_seconds": 0.008336461149156094
+        }
+      }
+    },
+    {
+      "interactions": 15,
+      "training_source": "study-m15/training.json",
+      "data_source": "study-m15-data/manifest.json",
+      "train_count": 100000,
+      "epochs": 100,
+      "best_epoch": 97,
+      "training_seconds_excluding_validation": 2403.752185714431,
+      "populations": {
+        "test_dense": {
+          "source": "study-m15/test_dense/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 5000,
+          "invalid_prediction_count": 0,
+          "primary": 0.019047227624062576,
+          "mean_per_band": [
+            0.020632659578707704,
+            0.01866543370808818,
+            0.017843589585391936
+          ],
+          "median_per_sample": 0.01627835465884402,
+          "p95_per_sample": 0.0395473276525547,
+          "maximum_per_sample": 0.1374878865498839,
+          "failures": [],
+          "parameter_mae_by_label": [
+            1.6621794777084797,
+            1.7229526520404836,
+            2.5330914498041026,
+            0.37147079481583,
+            2.61786624281749,
+            3.5853294010610655,
+            0.3941527920245204,
+            2.5415833266488423,
+            3.5266309721747553,
+            0.42247070649680174,
+            4.709182608390014,
+            2.79889631042148,
+            0.36795806526927555,
+            2.487704636461867,
+            2.710851010107937,
+            0.3995223912137389
+          ],
+          "inference_reconstruction_write_seconds": 3.166968376841396
+        },
+        "test_sparse": {
+          "source": "study-m15/test_sparse/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 5000,
+          "invalid_prediction_count": 0,
+          "primary": 0.025792601620584787,
+          "mean_per_band": [
+            0.0348677381713032,
+            0.02207604188628051,
+            0.020434024804170767
+          ],
+          "median_per_sample": 0.022730220617277037,
+          "p95_per_sample": 0.05027311747507064,
+          "maximum_per_sample": 0.15857822849049455,
+          "failures": [],
+          "parameter_mae_by_label": [
+            1.7309736674668672,
+            2.0353525378349673,
+            2.4068020023061987,
+            0.38354629592936074,
+            2.5424867722078215,
+            2.4981948715761697,
+            0.35809940579344945,
+            2.603871368108815,
+            2.457774424290363,
+            0.40535351800693575,
+            5.726277264444247,
+            2.3861149445273395,
+            0.36817770819938844,
+            2.3700145339712937,
+            2.381077665042438,
+            0.33094374757602446
+          ],
+          "inference_reconstruction_write_seconds": 3.132040174677968
+        },
+        "shared_m5_test_dense": {
+          "source": "study-m15/shared_m5_test_dense/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 10000,
+          "invalid_prediction_count": 0,
+          "primary": 0.05630507908699692,
+          "mean_per_band": [
+            0.09565324546037875,
+            0.04083086711521454,
+            0.03243112468539721
+          ],
+          "median_per_sample": 0.053849022217345756,
+          "p95_per_sample": 0.0805681287891901,
+          "maximum_per_sample": 0.18229315775173807,
+          "failures": [],
+          "inference_reconstruction_write_seconds": 6.302091246470809
+        },
+        "shared_m5_test_sparse": {
+          "source": "study-m15/shared_m5_test_sparse/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 10000,
+          "invalid_prediction_count": 0,
+          "primary": 0.08628410762475273,
+          "mean_per_band": [
+            0.12138035323606118,
+            0.06731294964823585,
+            0.07015901998996042
+          ],
+          "median_per_sample": 0.07713363492219918,
+          "p95_per_sample": 0.16596905869228462,
+          "maximum_per_sample": 0.3744302700684226,
+          "failures": [],
+          "inference_reconstruction_write_seconds": 6.408911036793143
+        },
+        "adversarial": {
+          "source": "study-m15/adversarial/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 108,
+          "invalid_prediction_count": 0,
+          "primary": 0.1377478762261615,
+          "mean_per_band": [
+            0.18433959238563508,
+            0.11561491110056575,
+            0.11328912519228375
+          ],
+          "median_per_sample": 0.11931735281798078,
+          "p95_per_sample": 0.2537419069023257,
+          "maximum_per_sample": 0.3756117431144958,
+          "failures": [],
+          "parameter_mae_by_label": [
+            2.213054654331889,
+            3.374958816817048,
+            3.695529115687219,
+            1.099125976703048,
+            3.4978756654396617,
+            4.366948066257217,
+            1.287568530753186,
+            2.857859349339492,
+            1.6678695663991843,
+            1.0736256934139272,
+            5.304309005776511,
+            1.1242331249787016,
+            0.7796275690864035,
+            1.248788504638799,
+            1.4181519627431003,
+            0.4957050633203001
+          ],
+          "inference_reconstruction_write_seconds": 0.17167451605200768
+        },
+        "showcase": {
+          "source": "study-m15/showcase/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 4,
+          "invalid_prediction_count": 0,
+          "primary": 0.0556828430536475,
+          "mean_per_band": [
+            0.08926550679359767,
+            0.044243573909735455,
+            0.03353944845760937
+          ],
+          "median_per_sample": 0.05534658703773865,
+          "p95_per_sample": 0.07286532648467879,
+          "maximum_per_sample": 0.07394959346177805,
+          "failures": [],
+          "parameter_mae_by_label": [
+            2.095632737508897,
+            3.1214635444102115,
+            2.1162497514935406,
+            0.4881345802495404,
+            1.6558284195212893,
+            6.58762282248822,
+            0.5377338266867705,
+            3.1348426707267754,
+            0.559750688373309,
+            0.4839200562111524,
+            5.184211515620919,
+            0.23519611602135126,
+            0.047454642326417606,
+            0.0960937070223006,
+            0.14489956950328994,
+            0.00645367794584586
+          ],
+          "inference_reconstruction_write_seconds": 0.013166340067982674
+        }
+      }
+    },
+    {
+      "interactions": 16,
+      "training_source": "study-m16/training.json",
+      "data_source": "study-m16-data/manifest.json",
+      "train_count": 100000,
+      "epochs": 100,
+      "best_epoch": 94,
+      "training_seconds_excluding_validation": 2413.8772499361075,
+      "populations": {
+        "test_dense": {
+          "source": "study-m16/test_dense/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 5000,
+          "invalid_prediction_count": 0,
+          "primary": 0.02001572102175009,
+          "mean_per_band": [
+            0.0198021898979041,
+            0.020859130904289085,
+            0.019385842263057004
+          ],
+          "median_per_sample": 0.01689240581407896,
+          "p95_per_sample": 0.04086877781904154,
+          "maximum_per_sample": 0.1556731585805319,
+          "failures": [],
+          "parameter_mae_by_label": [
+            1.6784106870403683,
+            1.7042923861336832,
+            2.665535579166968,
+            0.38724606993942096,
+            3.055056497605098,
+            4.2825997579670965,
+            0.4462234673271219,
+            2.3942042798948076,
+            3.4671508497759707,
+            0.8093750930691964,
+            3.252497911082178,
+            4.684505614181166,
+            0.4670312538553685,
+            2.507013944184937,
+            2.371691594749989,
+            0.8014347836515044,
+            2.3348802674266733
+          ],
+          "inference_reconstruction_write_seconds": 3.27998610958457
+        },
+        "test_sparse": {
+          "source": "study-m16/test_sparse/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 5000,
+          "invalid_prediction_count": 0,
+          "primary": 0.026787911582176697,
+          "mean_per_band": [
+            0.0371303756786172,
+            0.022315298453223668,
+            0.020918060614688934
+          ],
+          "median_per_sample": 0.023917147831930444,
+          "p95_per_sample": 0.050162916707202264,
+          "maximum_per_sample": 0.14539770787102427,
+          "failures": [],
+          "parameter_mae_by_label": [
+            1.7670873048541496,
+            2.0953409174045317,
+            2.7002747016428246,
+            0.3996724337350119,
+            2.6162152738600484,
+            2.675052456244668,
+            0.38392925110004034,
+            2.4657379041929706,
+            2.587520786011955,
+            0.4472633180527939,
+            2.5712981496981655,
+            6.212315205026672,
+            0.3690953504962858,
+            2.4166889570012233,
+            2.449231841994854,
+            0.3967170654497768,
+            2.4201073262708372
+          ],
+          "inference_reconstruction_write_seconds": 3.132771402131766
+        },
+        "shared_m5_test_dense": {
+          "source": "study-m16/shared_m5_test_dense/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 10000,
+          "invalid_prediction_count": 0,
+          "primary": 0.06320088793232631,
+          "mean_per_band": [
+            0.11365593668431188,
+            0.04588516054247337,
+            0.03006156657019357
+          ],
+          "median_per_sample": 0.061948435097580204,
+          "p95_per_sample": 0.08661230279646864,
+          "maximum_per_sample": 0.21364351481610142,
+          "failures": [],
+          "inference_reconstruction_write_seconds": 6.418469589203596
+        },
+        "shared_m5_test_sparse": {
+          "source": "study-m16/shared_m5_test_sparse/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 10000,
+          "invalid_prediction_count": 0,
+          "primary": 0.0884979131224693,
+          "mean_per_band": [
+            0.1427803605012834,
+            0.06845133385342876,
+            0.05426204501269523
+          ],
+          "median_per_sample": 0.07998211294178145,
+          "p95_per_sample": 0.16938866634780544,
+          "maximum_per_sample": 0.318873015904446,
+          "failures": [],
+          "inference_reconstruction_write_seconds": 6.2660794872790575
+        },
+        "adversarial": {
+          "source": "study-m16/adversarial/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 109,
+          "invalid_prediction_count": 0,
+          "primary": 0.14419144176273974,
+          "mean_per_band": [
+            0.21831814107044067,
+            0.1180183362304831,
+            0.09623784798729552
+          ],
+          "median_per_sample": 0.14238564474635762,
+          "p95_per_sample": 0.23818749373754972,
+          "maximum_per_sample": 0.3419102044782734,
+          "failures": [],
+          "parameter_mae_by_label": [
+            2.320133161343836,
+            3.4149788102480287,
+            4.000330574623363,
+            0.9929248758478421,
+            4.085554465696169,
+            4.431081653820309,
+            1.4616692427459843,
+            1.782117434837538,
+            2.4180379161899106,
+            1.1462913532206305,
+            1.487570510439597,
+            6.204873994111528,
+            0.8990036782727174,
+            1.3497858523033144,
+            1.8847649931711423,
+            0.7166754076168151,
+            1.3754232714308838
+          ],
+          "inference_reconstruction_write_seconds": 0.15802642377093434
+        },
+        "showcase": {
+          "source": "study-m16/showcase/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 4,
+          "invalid_prediction_count": 0,
+          "primary": 0.06154051513169656,
+          "mean_per_band": [
+            0.10530483933852884,
+            0.04734340923936932,
+            0.0319732968171915
+          ],
+          "median_per_sample": 0.062040192478555196,
+          "p95_per_sample": 0.07702877824598539,
+          "maximum_per_sample": 0.078645256775966,
+          "failures": [],
+          "parameter_mae_by_label": [
+            2.0521814999235377,
+            3.4053713259744107,
+            2.808857048229869,
+            0.9117604069234883,
+            4.893364859713424,
+            4.794572931377501,
+            0.8128641441654658,
+            0.8244859456837819,
+            2.882413801092267,
+            0.49049005316772626,
+            0.37462372031316077,
+            6.696203801174942,
+            0.05602360603773865,
+            0.32153166976763126,
+            0.4464971854114472,
+            0.023362850441757524,
+            0.1662609767038155
+          ],
+          "inference_reconstruction_write_seconds": 0.009662614203989506
+        }
+      }
+    },
+    {
+      "interactions": 17,
+      "training_source": "study-m17/training.json",
+      "data_source": "study-m17-data/manifest.json",
+      "train_count": 100000,
+      "epochs": 100,
+      "best_epoch": 96,
+      "training_seconds_excluding_validation": 2148.3175613577478,
+      "populations": {
+        "test_dense": {
+          "source": "study-m17/test_dense/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 5000,
+          "invalid_prediction_count": 0,
+          "primary": 0.017558591428894023,
+          "mean_per_band": [
+            0.019157113717660147,
+            0.017042444855707082,
+            0.01647621571331466
+          ],
+          "median_per_sample": 0.0147395563308029,
+          "p95_per_sample": 0.036710342714633214,
+          "maximum_per_sample": 0.19453420462853346,
+          "failures": [],
+          "parameter_mae_by_label": [
+            1.6474989713964532,
+            1.6755679601050208,
+            3.084685342453795,
+            0.41954004854406174,
+            2.9420107521381533,
+            3.0129436940549614,
+            0.49535812597803025,
+            3.430600567468437,
+            3.3588074786930813,
+            0.47506783535899333,
+            4.849040198939911,
+            2.3497963504716295,
+            0.42320892737398624,
+            2.826000120305721,
+            2.479955071228343,
+            0.3828505773375919,
+            2.8403873271859186,
+            2.5058807117838295
+          ],
+          "inference_reconstruction_write_seconds": 3.208876692224294
+        },
+        "test_sparse": {
+          "source": "study-m17/test_sparse/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 5000,
+          "invalid_prediction_count": 0,
+          "primary": 0.02551694327308519,
+          "mean_per_band": [
+            0.03576003194995153,
+            0.02130089243874072,
+            0.019489905430563243
+          ],
+          "median_per_sample": 0.0227983650671378,
+          "p95_per_sample": 0.04728290196540571,
+          "maximum_per_sample": 0.2593253898772753,
+          "failures": [],
+          "parameter_mae_by_label": [
+            1.6757829584628154,
+            1.864713973139938,
+            2.635793842390476,
+            0.443373753721367,
+            2.458388840461122,
+            2.5417143178193657,
+            0.3847482340648587,
+            2.9281282456131588,
+            2.4177506848058825,
+            0.3930717564232608,
+            6.59077539465818,
+            2.4366013622952645,
+            0.40314006982980793,
+            2.4130179466641697,
+            2.352586857891075,
+            0.40286196851619704,
+            2.7535616205237887,
+            2.4378410395093866
+          ],
+          "inference_reconstruction_write_seconds": 3.124773415736854
+        },
+        "shared_m5_test_dense": {
+          "source": "study-m17/shared_m5_test_dense/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 10000,
+          "invalid_prediction_count": 0,
+          "primary": 0.06684612405486244,
+          "mean_per_band": [
+            0.12135705676661959,
+            0.04580733838887772,
+            0.03337397700908889
+          ],
+          "median_per_sample": 0.06528520915544234,
+          "p95_per_sample": 0.09169650647809635,
+          "maximum_per_sample": 0.26135088506702886,
+          "failures": [],
+          "inference_reconstruction_write_seconds": 6.372071030549705
+        },
+        "shared_m5_test_sparse": {
+          "source": "study-m17/shared_m5_test_sparse/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 10000,
+          "invalid_prediction_count": 0,
+          "primary": 0.14027885053508066,
+          "mean_per_band": [
+            0.24601654276032067,
+            0.0942079411210568,
+            0.0806120677238639
+          ],
+          "median_per_sample": 0.08835392286090915,
+          "p95_per_sample": 0.6009367427429746,
+          "maximum_per_sample": 1.142981721462759,
+          "failures": [],
+          "inference_reconstruction_write_seconds": 6.51337978662923
+        },
+        "adversarial": {
+          "source": "study-m17/adversarial/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 110,
+          "invalid_prediction_count": 0,
+          "primary": 0.17034791630571283,
+          "mean_per_band": [
+            0.26653638697838655,
+            0.1281270484819949,
+            0.11638031345675683
+          ],
+          "median_per_sample": 0.14974845885887977,
+          "p95_per_sample": 0.2896509542421616,
+          "maximum_per_sample": 1.1717357117789498,
+          "failures": [],
+          "parameter_mae_by_label": [
+            2.2132302065995253,
+            3.414654534176072,
+            4.052258750649428,
+            0.9378156888464315,
+            4.066744534039104,
+            4.2940865620242725,
+            1.3834556900152077,
+            2.880208266161346,
+            1.5075286414028461,
+            1.1648466795753987,
+            6.66731064862286,
+            1.6234568162368574,
+            0.863627343518692,
+            1.2196961367271266,
+            1.6113166409618627,
+            0.6801001041926027,
+            1.7225501773331664,
+            1.2472752015841129
+          ],
+          "inference_reconstruction_write_seconds": 0.17687770118936896
+        },
+        "showcase": {
+          "source": "study-m17/showcase/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 4,
+          "invalid_prediction_count": 0,
+          "primary": 0.06765452546662987,
+          "mean_per_band": [
+            0.11588700076949683,
+            0.050656877739191614,
+            0.03641969789120114
+          ],
+          "median_per_sample": 0.06972325399882898,
+          "p95_per_sample": 0.08590927373735568,
+          "maximum_per_sample": 0.08716610934186923,
+          "failures": [],
+          "parameter_mae_by_label": [
+            2.0206375428253827,
+            3.169936472555717,
+            4.014939593987966,
+            0.8460884593720757,
+            5.090118422333349,
+            6.396755449473089,
+            0.8623204728017273,
+            2.9095537919240053,
+            0.6505039375091918,
+            0.618372140477673,
+            7.943633851954663,
+            0.7663925358692995,
+            0.09814076098522312,
+            0.21342514075951946,
+            0.6214122634156946,
+            0.049459584544238634,
+            0.8423138501613554,
+            0.23833019331534835
+          ],
+          "inference_reconstruction_write_seconds": 0.01458693528547883
+        }
+      }
+    },
+    {
+      "interactions": 18,
+      "training_source": "study-m18/training.json",
+      "data_source": "study-m18-data/manifest.json",
+      "train_count": 100000,
+      "epochs": 100,
+      "best_epoch": 97,
+      "training_seconds_excluding_validation": 1809.25600124849,
+      "populations": {
+        "test_dense": {
+          "source": "study-m18/test_dense/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 5000,
+          "invalid_prediction_count": 0,
+          "primary": 0.020367077594406993,
+          "mean_per_band": [
+            0.02096424927917821,
+            0.020473167096329976,
+            0.01966381640771276
+          ],
+          "median_per_sample": 0.016978734337787994,
+          "p95_per_sample": 0.04407555606638809,
+          "maximum_per_sample": 0.27012180659791224,
+          "failures": [],
+          "parameter_mae_by_label": [
+            1.6769335837729813,
+            1.703588079954197,
+            4.068938928538457,
+            0.660191605079329,
+            3.348926550954725,
+            4.483644294307978,
+            0.3989464671796006,
+            3.580743573501837,
+            4.884603316613546,
+            0.42132848032104364,
+            2.3759210326333675,
+            3.1877107304261543,
+            0.5289230222890684,
+            3.3486126396205136,
+            2.410803422747142,
+            0.4208708271277236,
+            2.3897217308790992,
+            3.2268031521751936,
+            0.38220842746485384
+          ],
+          "inference_reconstruction_write_seconds": 3.286118917632848
+        },
+        "test_sparse": {
+          "source": "study-m18/test_sparse/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 5000,
+          "invalid_prediction_count": 0,
+          "primary": 0.025210449141857133,
+          "mean_per_band": [
+            0.03273723504023492,
+            0.021824850126001508,
+            0.021069262259335045
+          ],
+          "median_per_sample": 0.022886047243078016,
+          "p95_per_sample": 0.04539847917686789,
+          "maximum_per_sample": 0.12333835268963717,
+          "failures": [],
+          "parameter_mae_by_label": [
+            1.715648717080073,
+            2.011957296710353,
+            4.674951461752369,
+            0.5022804035583144,
+            2.949586603802528,
+            2.5202141313557336,
+            0.441675918448492,
+            3.069923967561775,
+            2.492997598301766,
+            0.4181138236717045,
+            2.505759564597928,
+            2.397497947683106,
+            0.4452577164400656,
+            2.3572993763080636,
+            2.5283847924064453,
+            0.3926891892031603,
+            2.5756361511598396,
+            3.1323422308373514,
+            0.4181188397428844
+          ],
+          "inference_reconstruction_write_seconds": 3.1400279039517045
+        },
+        "shared_m5_test_dense": {
+          "source": "study-m18/shared_m5_test_dense/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 10000,
+          "invalid_prediction_count": 0,
+          "primary": 0.055477574789972596,
+          "mean_per_band": [
+            0.0844524323013014,
+            0.043727227255537855,
+            0.03825306481307835
+          ],
+          "median_per_sample": 0.053910523804949956,
+          "p95_per_sample": 0.07978743286324784,
+          "maximum_per_sample": 0.22798159379811986,
+          "failures": [],
+          "inference_reconstruction_write_seconds": 6.489165750332177
+        },
+        "shared_m5_test_sparse": {
+          "source": "study-m18/shared_m5_test_sparse/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 10000,
+          "invalid_prediction_count": 0,
+          "primary": 0.0962690597933328,
+          "mean_per_band": [
+            0.1558860037202698,
+            0.07226308040557969,
+            0.060658095254148295
+          ],
+          "median_per_sample": 0.07133844322641833,
+          "p95_per_sample": 0.3028763366277048,
+          "maximum_per_sample": 0.7292551471282843,
+          "failures": [],
+          "inference_reconstruction_write_seconds": 6.512986879330128
+        },
+        "adversarial": {
+          "source": "study-m18/adversarial/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 111,
+          "invalid_prediction_count": 0,
+          "primary": 0.16319503141052372,
+          "mean_per_band": [
+            0.24228043703078633,
+            0.12670525908108857,
+            0.12059939811969636
+          ],
+          "median_per_sample": 0.1383035966112474,
+          "p95_per_sample": 0.3144625580127811,
+          "maximum_per_sample": 0.8348625134183946,
+          "failures": [],
+          "parameter_mae_by_label": [
+            2.1862327986428243,
+            3.5006051095658073,
+            3.9397550777378463,
+            0.8420738972380153,
+            3.5385040990391126,
+            4.307181490797064,
+            1.3925243023236,
+            2.702957264941963,
+            0.7208087892151352,
+            0.9322518970515872,
+            1.4571866685784716,
+            0.9359127863389898,
+            0.6292485970688223,
+            1.0004843095099862,
+            1.6604338299178805,
+            0.40899866618614494,
+            1.0681535892847878,
+            1.771471629467774,
+            0.4274895349910172
+          ],
+          "inference_reconstruction_write_seconds": 0.1518514039926231
+        },
+        "showcase": {
+          "source": "study-m18/showcase/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 4,
+          "invalid_prediction_count": 0,
+          "primary": 0.058179203888203426,
+          "mean_per_band": [
+            0.08307994983033058,
+            0.049326409473162,
+            0.042131252361117685
+          ],
+          "median_per_sample": 0.05750513008152698,
+          "p95_per_sample": 0.07757940000396972,
+          "maximum_per_sample": 0.08040520029306947,
+          "failures": [],
+          "parameter_mae_by_label": [
+            2.023063213785355,
+            3.755896596973537,
+            3.0052831920290197,
+            1.2758941810539657,
+            1.860586177696822,
+            6.730431980675698,
+            1.0690683122249238,
+            3.616015059505501,
+            0.006878984007714701,
+            0.6347302140376356,
+            0.8975498504767894,
+            0.12836031813499305,
+            0.13149093303335327,
+            0.14475942673897216,
+            0.7116316950415263,
+            0.02835624522228608,
+            0.4541324548412942,
+            0.6857892258177208,
+            0.04650314607960014
+          ],
+          "inference_reconstruction_write_seconds": 0.008894418366253376
+        }
+      }
+    },
+    {
+      "interactions": 19,
+      "training_source": "study-m19/training.json",
+      "data_source": "study-m19-data/manifest.json",
+      "train_count": 100000,
+      "epochs": 100,
+      "best_epoch": 97,
+      "training_seconds_excluding_validation": 1798.906296347268,
+      "populations": {
+        "test_dense": {
+          "source": "study-m19/test_dense/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 5000,
+          "invalid_prediction_count": 0,
+          "primary": 0.01806919187395716,
+          "mean_per_band": [
+            0.019114000994704904,
+            0.018597248639896025,
+            0.01649632598727059
+          ],
+          "median_per_sample": 0.015002053553774375,
+          "p95_per_sample": 0.03762819690381691,
+          "maximum_per_sample": 0.15772899176647776,
+          "failures": [],
+          "parameter_mae_by_label": [
+            1.7024163529783696,
+            1.6821770204041357,
+            2.5656224612363103,
+            0.4482223607631312,
+            3.8274080273959896,
+            4.191676043906758,
+            0.4068178297236024,
+            3.760151482614716,
+            3.093819901388068,
+            0.44666964383800906,
+            2.8586145396444858,
+            2.9164614873479695,
+            0.47100298747759317,
+            3.783813470213159,
+            2.4873638630396107,
+            0.4172278929997317,
+            4.367231074868133,
+            2.455909192786118,
+            0.6886707171077519,
+            2.7289044725450684
+          ],
+          "inference_reconstruction_write_seconds": 3.377250249031931
+        },
+        "test_sparse": {
+          "source": "study-m19/test_sparse/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 5000,
+          "invalid_prediction_count": 0,
+          "primary": 0.024215413068118273,
+          "mean_per_band": [
+            0.033185422594583604,
+            0.020731158694953285,
+            0.018729657914817868
+          ],
+          "median_per_sample": 0.02191075139680434,
+          "p95_per_sample": 0.04374383607793428,
+          "maximum_per_sample": 0.14953417230338137,
+          "failures": [],
+          "parameter_mae_by_label": [
+            1.7137726401984887,
+            1.9220773146080428,
+            2.4289980075629787,
+            0.40905757417275046,
+            3.3025586592111082,
+            2.5169997671388122,
+            0.4177822361006816,
+            3.410942233252914,
+            2.4798341841319904,
+            0.4033074642802419,
+            2.774424585580108,
+            2.5505594406071186,
+            0.3848641559528963,
+            2.4545158319561406,
+            2.4964145208077118,
+            0.44243241387980686,
+            5.353862583395521,
+            2.451374557567853,
+            0.39366764835303186,
+            2.4117721193304766
+          ],
+          "inference_reconstruction_write_seconds": 3.3151837894693017
+        },
+        "shared_m5_test_dense": {
+          "source": "study-m19/shared_m5_test_dense/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 10000,
+          "invalid_prediction_count": 0,
+          "primary": 0.07619154388836065,
+          "mean_per_band": [
+            0.132729801685713,
+            0.05425109975738235,
+            0.04159373022198622
+          ],
+          "median_per_sample": 0.07420530089807853,
+          "p95_per_sample": 0.10355814296650245,
+          "maximum_per_sample": 0.20125611701307813,
+          "failures": [],
+          "inference_reconstruction_write_seconds": 6.73700919514522
+        },
+        "shared_m5_test_sparse": {
+          "source": "study-m19/shared_m5_test_sparse/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 10000,
+          "invalid_prediction_count": 0,
+          "primary": 0.12394492999028037,
+          "mean_per_band": [
+            0.1943873293054128,
+            0.09931140791516689,
+            0.07813605275026128
+          ],
+          "median_per_sample": 0.10220601669760712,
+          "p95_per_sample": 0.28009683090097015,
+          "maximum_per_sample": 0.6601047699134172,
+          "failures": [],
+          "inference_reconstruction_write_seconds": 6.4727720422670245
+        },
+        "adversarial": {
+          "source": "study-m19/adversarial/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 112,
+          "invalid_prediction_count": 0,
+          "primary": 0.16788067252977937,
+          "mean_per_band": [
+            0.2589513415305418,
+            0.13802466269716016,
+            0.10666601336163616
+          ],
+          "median_per_sample": 0.14885800062460874,
+          "p95_per_sample": 0.2831253239301376,
+          "maximum_per_sample": 0.6720549261917869,
+          "failures": [],
+          "parameter_mae_by_label": [
+            2.472427111724851,
+            3.4517246302644224,
+            4.086388401047482,
+            0.9138469176309265,
+            3.7395059250326486,
+            4.201481703508846,
+            1.2047155006574433,
+            3.1828558699594045,
+            1.4198264395181148,
+            0.8019137635434258,
+            1.9796991380737023,
+            1.1828944155701795,
+            0.49558079152066065,
+            1.3235916165243602,
+            1.5428010316252032,
+            0.6201910937082761,
+            4.397367253335392,
+            1.366165319898117,
+            0.38043662189355476,
+            0.9200160709879567
+          ],
+          "inference_reconstruction_write_seconds": 0.14905115496367216
+        },
+        "showcase": {
+          "source": "study-m19/showcase/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 4,
+          "invalid_prediction_count": 0,
+          "primary": 0.07526980070302522,
+          "mean_per_band": [
+            0.12340274800039544,
+            0.05419714567910275,
+            0.048209508429577455
+          ],
+          "median_per_sample": 0.07366611494800765,
+          "p95_per_sample": 0.08980364773637217,
+          "maximum_per_sample": 0.09184703057779141,
+          "failures": [],
+          "parameter_mae_by_label": [
+            2.021562820303938,
+            3.7339372371440724,
+            4.537001393151561,
+            1.3452475025953168,
+            3.608348944501409,
+            6.376313831801002,
+            0.9237409138571298,
+            3.2880578147545805,
+            0.5703896871905935,
+            0.5119643365609501,
+            2.1757932678840293,
+            0.6191823195973126,
+            0.07363649832145308,
+            0.8527233772436353,
+            0.6339446117096309,
+            0.09754333802908083,
+            4.441182072429182,
+            0.33539868541356366,
+            0.04624126616745642,
+            0.0550780101968216
+          ],
+          "inference_reconstruction_write_seconds": 0.007568355184048414
+        }
+      }
+    },
+    {
+      "interactions": 20,
+      "training_source": "study-m20/training.json",
+      "data_source": "study-m20-data/manifest.json",
+      "train_count": 100000,
+      "epochs": 100,
+      "best_epoch": 82,
+      "training_seconds_excluding_validation": 522.231030237861,
+      "populations": {
+        "test_dense": {
+          "source": "study-m20/test_dense/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 5000,
+          "invalid_prediction_count": 0,
+          "primary": 0.018125868647358413,
+          "mean_per_band": [
+            0.017923351857138024,
+            0.019073711993127504,
+            0.01738054209180964
+          ],
+          "median_per_sample": 0.015538380764139454,
+          "p95_per_sample": 0.03532339351655648,
+          "maximum_per_sample": 0.18557393105232536,
+          "failures": [],
+          "parameter_mae_by_label": [
+            1.6696551252909801,
+            1.669610978936314,
+            2.652905477179718,
+            0.8465321324853796,
+            4.381532599301067,
+            4.459837432944067,
+            0.6982178383252445,
+            3.7970178030816846,
+            3.994187843396657,
+            0.5386923016802452,
+            2.5216105287517814,
+            2.5641299679469385,
+            0.6487269738810939,
+            3.8953397900971236,
+            2.7859559272979273,
+            1.0648604937588817,
+            4.620523301322636,
+            3.6729280280807544,
+            0.6430585039827527,
+            2.4426544853009173,
+            2.486865447716418
+          ],
+          "inference_reconstruction_write_seconds": 3.322237947024405
+        },
+        "test_sparse": {
+          "source": "study-m20/test_sparse/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 5000,
+          "invalid_prediction_count": 0,
+          "primary": 0.025029168574082144,
+          "mean_per_band": [
+            0.03433072273967294,
+            0.02172488140534007,
+            0.01903190157723335
+          ],
+          "median_per_sample": 0.022882473097228594,
+          "p95_per_sample": 0.043128034551918264,
+          "maximum_per_sample": 0.16269134527913798,
+          "failures": [],
+          "parameter_mae_by_label": [
+            1.6909380013145128,
+            1.9162585025187258,
+            2.437972537839665,
+            0.5286265097095901,
+            3.945467281345239,
+            2.52690650552898,
+            0.5352213696424123,
+            3.5119549649271837,
+            2.5365618060277173,
+            0.5019055480181062,
+            2.728975874892187,
+            2.629782984510513,
+            0.5076399808962924,
+            2.4789478463991026,
+            2.55888336843846,
+            0.54524312752519,
+            6.051411670369186,
+            2.8509646761049425,
+            0.47626315813908177,
+            2.3845127784074145,
+            2.4288725358108603
+          ],
+          "inference_reconstruction_write_seconds": 3.3782565356232226
+        },
+        "shared_m5_test_dense": {
+          "source": "study-m20/shared_m5_test_dense/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 10000,
+          "invalid_prediction_count": 0,
+          "primary": 0.08070259697478409,
+          "mean_per_band": [
+            0.1440816029285944,
+            0.052242379414852505,
+            0.045783808580905666
+          ],
+          "median_per_sample": 0.07835294643531396,
+          "p95_per_sample": 0.10941108207313904,
+          "maximum_per_sample": 0.40939207693220964,
+          "failures": [],
+          "inference_reconstruction_write_seconds": 6.686753088608384
+        },
+        "shared_m5_test_sparse": {
+          "source": "study-m20/shared_m5_test_sparse/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 10000,
+          "invalid_prediction_count": 0,
+          "primary": 0.1890947476496468,
+          "mean_per_band": [
+            0.3184857368765701,
+            0.13024019887949775,
+            0.11855830719287251
+          ],
+          "median_per_sample": 0.11261608312154091,
+          "p95_per_sample": 0.8402913635932432,
+          "maximum_per_sample": 1.5499914724593973,
+          "failures": [],
+          "inference_reconstruction_write_seconds": 6.641845851205289
+        },
+        "adversarial": {
+          "source": "study-m20/adversarial/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 113,
+          "invalid_prediction_count": 0,
+          "primary": 0.2124885241311365,
+          "mean_per_band": [
+            0.34269354455438555,
+            0.16440779539583442,
+            0.13036423244318981
+          ],
+          "median_per_sample": 0.16835033068586888,
+          "p95_per_sample": 0.34012273837403634,
+          "maximum_per_sample": 1.5858749335646756,
+          "failures": [],
+          "parameter_mae_by_label": [
+            2.3931991880094574,
+            3.556277148503473,
+            4.083447440241796,
+            0.9886342098978155,
+            3.731885895490407,
+            4.2654913840832505,
+            1.0803080035839154,
+            2.7776045736862547,
+            0.8107317799771907,
+            0.8073475207489348,
+            2.1187494822029493,
+            1.3370647687427717,
+            0.41970342750562084,
+            0.913709945470785,
+            1.6993443940540927,
+            0.4557659396405697,
+            5.50413401040177,
+            1.2771458572313437,
+            0.39012250225575057,
+            0.8496389281933668,
+            0.872248975665742
+          ],
+          "inference_reconstruction_write_seconds": 0.14255371503531933
+        },
+        "showcase": {
+          "source": "study-m20/showcase/scores.json",
+          "metric": "mean_example_mean_band_target_rms_normalized_rmse",
+          "count": 4,
+          "invalid_prediction_count": 0,
+          "primary": 0.07912563722053031,
+          "mean_per_band": [
+            0.13637627821277692,
+            0.055753210982783095,
+            0.045247422466030925
+          ],
+          "median_per_sample": 0.07711356219279336,
+          "p95_per_sample": 0.09393523541540412,
+          "maximum_per_sample": 0.09599795359639217,
+          "failures": [],
+          "parameter_mae_by_label": [
+            2.057878502059506,
+            3.869905674075617,
+            4.588771153629039,
+            1.1855548243970535,
+            3.585820399503848,
+            6.676626791183185,
+            0.8507456023748953,
+            2.7454141863409074,
+            0.3506985537868508,
+            0.5501563773559875,
+            1.8474743280796961,
+            0.7532521091215478,
+            0.1176084978390021,
+            0.18242851356605722,
+            1.1411274066610053,
+            0.10471961244812866,
+            5.297760297949894,
+            0.5818472533655736,
+            0.09768722074084307,
+            0.1673647651482168,
+            0.1811825427306864
+          ],
+          "inference_reconstruction_write_seconds": 0.01109704002737999
+        }
+      }
+    }
+  ],
+  "main_resources": {
+    "training_source": "main-m5/training.json",
+    "data_source": "main-m5-data/manifest.json",
+    "hardware_source": "executions/7b8eedb4d43a4322b2021631fa637674.json",
+    "hardware_for_paper": "H100",
+    "train_count": 2500000,
+    "epochs": 5,
+    "best_epoch": 5,
+    "best_validation_primary": 0.021934058800976652,
+    "training_configuration": {
+      "architecture": "five-layernorm-relu-corrected-io-v2",
+      "batch_size": 1024,
+      "learning_rate": 0.0001,
+      "seed": 271829,
+      "hidden_normalization": {
+        "type": "LayerNorm",
+        "eps": 1e-05,
+        "elementwise_affine": true
+      },
+      "gradient_clip_norm": 1.0,
+      "collapse_guard": {
+        "unit_bound_tolerance": 1e-12,
+        "minimum_batch_size": 2,
+        "maximum_absolute_gradient": 1e-20
+      },
+      "epochs": 5
+    },
+    "training_seconds_excluding_validation": 893.5807651127689,
+    "training_minutes_excluding_validation": 14.89301275187948,
+    "training_timing_scope": "committed updates incl. in-memory batch copies/transfers; one storage read per attempt recorded separately; interrupted unsaved work excluded",
+    "generation_write_hash_seconds_by_split": {
+      "train": 2007.0500841061585,
+      "validation_dense": 1.6624306431040168,
+      "validation_sparse": 1.6379002267494798,
+      "test_dense": 99.40815193997696,
+      "test_sparse": 99.77487284410745,
+      "adversarial": 0.09185304120182991,
+      "showcase": 0.008992963936179876
+    },
+    "generation_write_hash_seconds_all_splits": 2209.6342857652344,
+    "generation_train_minutes": 33.45083473510264,
+    "generation_timing_scope": "Sum of manifest chunk generation_write_hash_seconds; includes curve generation, writing and hashing. Training-only and all-split totals are separate. Does not measure total pipeline wall time or all setup/label generation.",
+    "peak_memory": null
+  },
+  "presentation_choices": {
+    "showcase": "2x2 panels, ascending bands colored blue/green/red, solid targets and black dashed designs, independent panel y limits, same style as the one- and two-band showcase figures; q_hat is the normalized wave number.",
+    "generalization": "Two population means on shared M5 targets, 10000 examples each; linear zero-based axis; no own-count series or uncertainty band. One fit per interaction count.",
+    "population_table": "Rows mean, median, 95th percentile, count and invalid designs; columns stratified, uniform and boundary."
+  },
+  "checks": {
+    "independent_reference_source_matches_recorded_sha256": true,
+    "target_reconstruction_max_absolute_error": 1.9818348351297033e-13,
+    "adopted_per_band_max_absolute_error_vs_audited": 1.0408340855860843e-16,
+    "all_population_summaries_verified_from_per_band_arrays": true,
+    "all_populations_have_zero_invalid_predictions": true
+  },
+  "source_sha256": {
+    "main-m5-data/manifest.json": "6adb2c78ee10627440eb30a22168016e2422f76bd0ecdde69971154634f7d242",
+    "main-m5/training.json": "4924c55131afdc0c40beaf23105a55ca02079f198dc5ebb0594d78b31857668c",
+    "main-m5-data/q_hat.npy": "14d39c973dae58068b4bb37e8f4b2345c93f2b2c6672aab7571596943194b9ce",
+    "main-m5-data/showcase.bands.npy": "bb9b98fa4b3edc5ba6a9e155e577a1fafb36f9fe4d1c85f595767d8779d68286",
+    "main-m5-data/showcase.labels.npy": "64248435696e5386895e38f4f0e0075722295fa8db7a97ed9694d309ca416866",
+    "main-m5/showcase/predictions.npy": "9d3486ee8cee577ff1f6d21f7d2f5fd45f7c1d1dae9c44229b960b4a2f1eebc8",
+    "main-m5/showcase/per_band_errors.npy": "046b34773e6bdcc52eb544a9a381d673267eedb68cfa0e503f15f43f284c2299",
+    "main-m5/test_sparse/scores.json": "c1c70d02bb574c5418dbdff331cf48a8d201ad01e3bce017ba69c1cbe439a049",
+    "main-m5/test_sparse/per_band_errors.npy": "6847946a33b7d434966efc38c773d8906732f8d3afd3e806f45fc702b3ab2fb1",
+    "main-m5/test_dense/scores.json": "8dfd89efd5de06d776ad182292161d95a19d5be45e7d435e22b5554f5e46ce80",
+    "main-m5/test_dense/per_band_errors.npy": "09fac1612a9875c20f36f06916081e7d73e085c1df6111218d0662e4bd56083d",
+    "main-m5/adversarial/scores.json": "96d2c241bf965cdfa5ad849d3160e28987cd0f44152c18f15ef3ff17541c7040",
+    "main-m5/adversarial/per_band_errors.npy": "1b56018aa4524fd6bfccde37c26f2d5316f61a002aaa0d01cf7720b8b7fa2bfa",
+    "main-m5/showcase/scores.json": "cb9839543605dd82e50a4740e5498394029d9edbf3a44f6f7cedb0357df9bc79",
+    "study-m5/training.json": "57625abbb13b4a0eea61c8a87b3059e8f65e5020073171b873a38aa7af3af55c",
+    "study-m5-data/manifest.json": "f79f69fddc4994df64fb5f448138826eac6ff9a83e511877c2462ccb3a282a84",
+    "study-m5/test_dense/scores.json": "dabcfaf334846726093bffcce3cb7ec6a960aaee5d516ccfba165dbbda276667",
+    "study-m5/test_dense/per_band_errors.npy": "6b13de326bbabe067d8dc53d1da5f1d26b1135175989e1733888492067580817",
+    "study-m5/test_sparse/scores.json": "f38d823361766b9d15a1c8a0447c6535fffb4f22ccf0a22ce506a2d199d61919",
+    "study-m5/test_sparse/per_band_errors.npy": "eec69f5b92d2792f5c0c5ee9e08f6c9e15907a32a9b69f5756cda20530bd6b4a",
+    "study-m5/shared_m5_test_dense/scores.json": "3a117b63dfc7836db37428e17b179ab8316af20daabf9cc6c4a0b8ed8739e3d5",
+    "study-m5/shared_m5_test_dense/per_band_errors.npy": "3d1145e7688b8be5e08a34a52f161433a171ebea6c8ee898b66c6806b3dbedac",
+    "study-m5/shared_m5_test_sparse/scores.json": "a0a099474c7333af53edeb002c4053b2ee547999bd3416f86995058d50bac1d5",
+    "study-m5/shared_m5_test_sparse/per_band_errors.npy": "7b4a517d6c2677d0845fb64d13fd787161805399d61df90d92360145a2dcb619",
+    "study-m5/adversarial/scores.json": "f334db5e5c4a41ca466ce7a33ef22841d038dff66152759caaeb479b5eba5faf",
+    "study-m5/adversarial/per_band_errors.npy": "563adc5aff89dd6f30ead67649bedb748ff8f83bbb8d5bde57b3cbf858f0d019",
+    "study-m5/showcase/scores.json": "e2df26484499560dc082b46b3870b22bea6ef58ec588e433bb85e45bf524581a",
+    "study-m5/showcase/per_band_errors.npy": "854631b5c97aecccb58940d697ba333bb3bcf85a6cac55ad994a9f6bd87d8c3c",
+    "study-m6/training.json": "5662e1f23649d923508a27502fc2e76c141896190f0c7fdc84c2e4cca7475f40",
+    "study-m6-data/manifest.json": "bec9e5b32ee05b5ddd3a385bf891bcf7f25e23f88926a287817b3054ab3859ad",
+    "study-m6/test_dense/scores.json": "f76097b2841f2f73d7d6dae9fd23b134f9722f07bd1459380e069c68425cce3d",
+    "study-m6/test_dense/per_band_errors.npy": "c472ccee1baf1e27094d86c0a1d833c3e2e455fdc66572541e619794dc1cede3",
+    "study-m6/test_sparse/scores.json": "40506887eaa7817d4d415c3bd56daba935f1d235592ffbd7d95f6653b78d9648",
+    "study-m6/test_sparse/per_band_errors.npy": "8f5876bd017acbc404fdc512d5c05fe68c7771ed86d350e67dfcba33a4519c06",
+    "study-m6/shared_m5_test_dense/scores.json": "ac1df2b7d4b95e402b1def9ad3588ebd09f12876ccab3b0f8cb43b4df63c277c",
+    "study-m6/shared_m5_test_dense/per_band_errors.npy": "2cdc0cd55bff68b2f4e256ba20e2e206e45c2c4573b33dad5153835498e2ffc8",
+    "study-m6/shared_m5_test_sparse/scores.json": "6987916d4034bffe185703f38442ae1706ad1edd4e399fbc3b409f5db9bc905c",
+    "study-m6/shared_m5_test_sparse/per_band_errors.npy": "fa925d5f062b6d4987f571f70187e9ee820d5d98f071384a6c1b4ea83a8142b4",
+    "study-m6/adversarial/scores.json": "9fb83238dd0c28127704f04ca07940cb8066458887fc5d1442edf4fbc8bd71b7",
+    "study-m6/adversarial/per_band_errors.npy": "75b86b70bbb1e5355d947deb2a42fcaf7e56323387a1c9266bfb70c2f79d7f24",
+    "study-m6/showcase/scores.json": "d71bb70e2a3741c5c89123b2bfe075686b8092ca50cf71c9ced4593d39b04cbe",
+    "study-m6/showcase/per_band_errors.npy": "5a79e25a50263fe3a02652a8e55bcb3de59dc709cb9b6d09d20ae5d6ddcba2a1",
+    "study-m7/training.json": "5031268b65284e892daff083be30f9819fa13c7b67685de897598636d0f2bee8",
+    "study-m7-data/manifest.json": "2c70f191a09e3012b5bf866a7530e16aacd27dd04c2e691fc9a0da1299be06e3",
+    "study-m7/test_dense/scores.json": "e93673e7e35c387b1448d16d3a332423752f8657f10bfdb441941dd1420269f6",
+    "study-m7/test_dense/per_band_errors.npy": "ad502e48fe4945a88ec9608cb82932494b4cce098788d8623912ea37ab210bbc",
+    "study-m7/test_sparse/scores.json": "84454cea4183170c22c1435e6f422a1e831bb3f800390fecec2234773667a752",
+    "study-m7/test_sparse/per_band_errors.npy": "7889e3f507d4b3ffec0d99d16b8fc8fa6a529d3310323be88d182c695c4d7ac7",
+    "study-m7/shared_m5_test_dense/scores.json": "1d5bcd8d3c28ce108058069226fdd9943ecae4b3fcc0daa8910441cfcf671821",
+    "study-m7/shared_m5_test_dense/per_band_errors.npy": "1d4a5ee695362404ee3ec041cbbedb831709eb03a114ed447551c46e4fc62b71",
+    "study-m7/shared_m5_test_sparse/scores.json": "3656175db94ab0f9c2a3760b7300af2934f5bf89ef62b541faec43692f7c1737",
+    "study-m7/shared_m5_test_sparse/per_band_errors.npy": "ada75d29535825b941aa83217b22eda0501a282c46fe39174e35c27a32149d6d",
+    "study-m7/adversarial/scores.json": "acb5c9fbebc6c6fa1c08524a6b2df3f06a5dad3da7d08f665947f23700ed0a9b",
+    "study-m7/adversarial/per_band_errors.npy": "9b9a79798a596e40f2270279e86aa0c3a53aec178f02de2b067415c413120a58",
+    "study-m7/showcase/scores.json": "20ddfd438b50e7c210963888e2269273129cea67a5dfe28ebcc54e8d76cc040a",
+    "study-m7/showcase/per_band_errors.npy": "f0e13e34b5f7e3b368ef20194bbfdc76d7c05a13fef18e4959067757b62ad64f",
+    "study-m8/training.json": "3a9c47a804f0769a37702500c8d507c0333ff08967de19b0f95fa9568e0550e8",
+    "study-m8-data/manifest.json": "aa160028f9c9383e53d123b6d7f8736616ad3ee82233d3c6f4ab350f175bd75c",
+    "study-m8/test_dense/scores.json": "6cd8789c69388f50cb2141dd490e5b416889e493c833a5465d781c5eb20a78cf",
+    "study-m8/test_dense/per_band_errors.npy": "aa7155e5dc92ce703b86f0af04691124752b3b809b2fbfdc6266ca3337e6f0e5",
+    "study-m8/test_sparse/scores.json": "c154de1ef0dc73890390f592732c718425957755fbc56ec9d4b63f2e9b411562",
+    "study-m8/test_sparse/per_band_errors.npy": "6302c88c56e73278d18ec20a889b1c937c0e4e181bdca7811ffee5429d6e25d0",
+    "study-m8/shared_m5_test_dense/scores.json": "0aca121228d2b3e2344ddc82b354bab4d410aa6addfebacb2574f086aaf6bbcd",
+    "study-m8/shared_m5_test_dense/per_band_errors.npy": "032c19577f13120eb6ba5527dab71660ce375b7d194440156e93ccf4fb90b53e",
+    "study-m8/shared_m5_test_sparse/scores.json": "0c572f737fd8ae98cd11d19e30f5bb41b74ac8b5c1d9800c781e9e61dcfddfb4",
+    "study-m8/shared_m5_test_sparse/per_band_errors.npy": "05d1bd3f4dcdf5b675dd9c2996dcaa921f7c37028333f9eefb6e5b756aa76157",
+    "study-m8/adversarial/scores.json": "0daf0e0809f87a47d7b869bb8df323ffc7503d8366873b7950db14d0506d940f",
+    "study-m8/adversarial/per_band_errors.npy": "b9d36c4567ebf97c1a074898463f7d7fb54effe4060504f89b60aef1998a72a5",
+    "study-m8/showcase/scores.json": "aad24237e142dfe2d088b71e608d87716b46ba4a3ff31fabc0dec7209caed11a",
+    "study-m8/showcase/per_band_errors.npy": "969a780a36939c5aa78be1d4df54d6e189a5695dc000e1e2f51e3877242c1c5a",
+    "study-m9/training.json": "726d0db5a318def872afcd3f54577a00f0062a257ca40c21e6c9679dc38b5d1b",
+    "study-m9-data/manifest.json": "223f22f7f6eb22b105e4ca09ae36340f549ba3041c5204027e3384d7c5e2a689",
+    "study-m9/test_dense/scores.json": "5df4bafb4158a33b6062c852e4052799948a33b8d7a753ba1b787849942a51c0",
+    "study-m9/test_dense/per_band_errors.npy": "06f6da67608313e837c717af2d939e20a55a8d4a2805fb0a89d161df6612a8db",
+    "study-m9/test_sparse/scores.json": "9e7c3c44d1d2efc151c0eb26e8859fab0166f208ad6394b52be385728fc8966b",
+    "study-m9/test_sparse/per_band_errors.npy": "b74bac73620605496fb48404b25eecf4ce75be8c54c36434ec64eee74ecf285c",
+    "study-m9/shared_m5_test_dense/scores.json": "2651a941733b9748ca4d9996d501f1c7e93e400767160824f8cabc6d403e6296",
+    "study-m9/shared_m5_test_dense/per_band_errors.npy": "a6ccfc8eda6bd3861cceed8642e319a62e8c39a6425ad7a4a53742677cbee2a8",
+    "study-m9/shared_m5_test_sparse/scores.json": "ff8a82919877127213eedf49a6a7161825d5274fca94151c07d071b8ace92a06",
+    "study-m9/shared_m5_test_sparse/per_band_errors.npy": "686544b2a7c76ad3c12adb2b6545a335efe0e2f6e56e58b3b1910c041ae0e588",
+    "study-m9/adversarial/scores.json": "5ac4def7c04689dba7c1fe3276db030098b543e70a7fa68a0ff113475ea984e8",
+    "study-m9/adversarial/per_band_errors.npy": "88c864d4563ac126d2f911e9319a5bee1d323e556e1ed3d434a0230f68c7d671",
+    "study-m9/showcase/scores.json": "e1b26a65924f339567c99421c116427077c20de9e93af43f3a2296edf45d290f",
+    "study-m9/showcase/per_band_errors.npy": "3e61b573f487ebbf054bf19074473df1c0fde6e29d6c107f3467d3d4c6441e8c",
+    "study-m10/training.json": "0ad47ff4d3e88002bb0e73970cffcdbb310dafb9b7a2775accc4224f2f4b1c50",
+    "study-m10-data/manifest.json": "a978f9994d0dd7bc19938824c01649367ce1890db07db75ac9ae776e63c1b80b",
+    "study-m10/test_dense/scores.json": "ab52ab8e0197d71f1d4eb4345e5828d39b3eca71f52435fb20e5eb693c8df3dc",
+    "study-m10/test_dense/per_band_errors.npy": "847845f89365bfb966d63001e735c093ca3a0a93318fa4389ac05bfe3affc59a",
+    "study-m10/test_sparse/scores.json": "1a63325dd6c2d7f5c55c3838ceeba4d95e1d1d875865d6d2bf3c87a9cbcbff9a",
+    "study-m10/test_sparse/per_band_errors.npy": "1472677caff6ac41f00512be09586329b04f76547e202b3baf5666d960ed1f32",
+    "study-m10/shared_m5_test_dense/scores.json": "f77f89216666d5553e7618cb2a5912170c41833f424d5a7515a39117a6ab2b1b",
+    "study-m10/shared_m5_test_dense/per_band_errors.npy": "788b7ffb7109ea6edf57a3a1da91b8dc54d249be727f1cdf323b5674b63269e3",
+    "study-m10/shared_m5_test_sparse/scores.json": "5ce78d9e6afc52df4f0a51f5538b0cd944ebf1b323b017bfb2c1a09c1bd4e1f6",
+    "study-m10/shared_m5_test_sparse/per_band_errors.npy": "b82ca90e250a30f423e90253582daba07320205f7122141c15e93f0fd3748b7d",
+    "study-m10/adversarial/scores.json": "aab8c8663b77387a9e31dce474c1d03ebd5256921ed02f26314451c7be6ba1d3",
+    "study-m10/adversarial/per_band_errors.npy": "104bdd28a1954563869332e943ce5868848bfcf3f50b772fcc72d85a9428c8d7",
+    "study-m10/showcase/scores.json": "03c2e40110557a5a8f0d85983ed68ade7acbf64edc2d1a275bbfe93f04cc20ee",
+    "study-m10/showcase/per_band_errors.npy": "deeca4dc3aea2432c4b30acfacb57a5837371e4b1f340c1a91dcebe7bb80db0a",
+    "study-m11/training.json": "921fba14f8aab7734e48325062b8df353f82a1648ccd0d7aacb96155d058047b",
+    "study-m11-data/manifest.json": "dc04efe724fdad173c5796bf4f60b7895cdcf4eb37f7f1545218d5f43fcae97e",
+    "study-m11/test_dense/scores.json": "d556fa01121482d082ab944d9c14a406acb7b73e24074b5df5a7f8595dc88be3",
+    "study-m11/test_dense/per_band_errors.npy": "0a149ebad9fff6a6b2d0dfed40e833ec615cc72333042d6886afaab92b61b331",
+    "study-m11/test_sparse/scores.json": "db775698c7bc0f62442fc39b5e89067a806eda69f0a08f788dee88c2c13c3ffb",
+    "study-m11/test_sparse/per_band_errors.npy": "34a5eb0d655050a35422f02fe3594eaa5f05980d136959314da93539765dc86e",
+    "study-m11/shared_m5_test_dense/scores.json": "379b172bb9ca84c6047689ef0dc14cce26c278a6121666ac02e1a2cd519cdc54",
+    "study-m11/shared_m5_test_dense/per_band_errors.npy": "a1aea44b53b614c34cc2ad981504c0e6e5b5dbcfa50b47e4a0b6313e44a6e05c",
+    "study-m11/shared_m5_test_sparse/scores.json": "1d678f7a8a00f23892e8e1586739c9b2c4b19e8792057959ed0695b28475f93f",
+    "study-m11/shared_m5_test_sparse/per_band_errors.npy": "149c2f1517af63ea16271dbf206699c904aa83e4f6be3d853ce5c329a13af20f",
+    "study-m11/adversarial/scores.json": "359c39fc77b31650d16e358fc0266d1360443178626d9ac2e889fb55e725e328",
+    "study-m11/adversarial/per_band_errors.npy": "fd11eb5f649e8fe74d237a8699d9c27010b84f6e38dc029c8c40b9981b066bc2",
+    "study-m11/showcase/scores.json": "5f5826a89ee4cbd8ab329218b4da68f19cb751b6b602e850433004d13e85d26e",
+    "study-m11/showcase/per_band_errors.npy": "cb4548ed35b72857bc2279787599bde95f64642ce54ae6267f3c6e2f0944eaf8",
+    "study-m12/training.json": "360e0b56d5b3e1186a40826073e8d358e7d910c9bffecf9f0a09d54d014559e9",
+    "study-m12-data/manifest.json": "d6fd24b85294827a1ba9c39d27a2a13c646263df221370dd717e5496007e9447",
+    "study-m12/test_dense/scores.json": "0cc9e65d807a13989fb4827000c20989b168c56f22197019e674f73fe9ad9b38",
+    "study-m12/test_dense/per_band_errors.npy": "e36037d51a7dfff72e74a158454041e7e5435d495b37f308db42014128bddfe2",
+    "study-m12/test_sparse/scores.json": "c264f8fc5d1af85a5dd1a6d74a124643b781e796a7398b6b74d6a6a60c0c0024",
+    "study-m12/test_sparse/per_band_errors.npy": "81f3c42f15054e1c53440d6930ff1efdfce18a92b635c60fd6c9873e0e70c0e9",
+    "study-m12/shared_m5_test_dense/scores.json": "ff10ab3f45d2e10b9a6dc5cfd7dd64dd04a98e873d3203c5f866cb161c6db324",
+    "study-m12/shared_m5_test_dense/per_band_errors.npy": "92967f86b5248e086fe559f2b57279602c182416c95697dd462e7333edb15391",
+    "study-m12/shared_m5_test_sparse/scores.json": "75e33a74b15f24d7b27e788335ae728e1b4cbe4c1efb03f6e7ac01e0c8e257c5",
+    "study-m12/shared_m5_test_sparse/per_band_errors.npy": "e76f14b7c641544ee969d0d8fd10f2f703e4a3d5a82a0883e444d01d1ed23b83",
+    "study-m12/adversarial/scores.json": "ca1eec26ce8ba23946c81815c868e9556bef5404605c01dbe0de04715324785c",
+    "study-m12/adversarial/per_band_errors.npy": "6cb07f0c36d3774a44fbceb3875ffafc9561357d943820c859a3532ba2266f45",
+    "study-m12/showcase/scores.json": "71ca405dd58e2c981cabb8c12b3edbdc9c454ab48ce8662b25c126de4c4d0d36",
+    "study-m12/showcase/per_band_errors.npy": "c00601385a2167a3fc7da78666ee8ac905846912ba0905a59b8a4a40b15edaad",
+    "study-m13/training.json": "3ce44dbcfde70a1ad4baf36bead304ae99d016dc5762d0d76926903a57afa437",
+    "study-m13-data/manifest.json": "775bb187083f6d14e5c75e32973c6a2461c0ae67d3f8d5e1a53e0c8ad3ab4441",
+    "study-m13/test_dense/scores.json": "4a51007e4b646f9d7df26dfed36bdde78647b7ec1072b77dffd28a5061702e40",
+    "study-m13/test_dense/per_band_errors.npy": "6cc6c97ca7e6ef3fea5f583050eac57aa42b0dd81bd3137d8fae3fc1d4c096df",
+    "study-m13/test_sparse/scores.json": "ac87ebb57dd523bb878660457f23c867c943c8527a5506076d7ee3e660ec9978",
+    "study-m13/test_sparse/per_band_errors.npy": "a4903e4fc49d3fe6b3515caa00d7f658155b05d4e898fbf94239a5e7aa44e330",
+    "study-m13/shared_m5_test_dense/scores.json": "cf8df24925e519f12741ad9b5d3eb1b30d911df886ad5cfb3834f9de7fb5a281",
+    "study-m13/shared_m5_test_dense/per_band_errors.npy": "4ab5f3d5a01690c1bee29ed84f43918fa7b9cfe05d942a251b9475dfc50a4d77",
+    "study-m13/shared_m5_test_sparse/scores.json": "80869e5f257af7726013052de550f816baa685b05bf359042e8fb991eb701874",
+    "study-m13/shared_m5_test_sparse/per_band_errors.npy": "562e2fe645e10650e5001c5987809303d4aaa7e3bdaa9ac00b61facc39cff458",
+    "study-m13/adversarial/scores.json": "6cf60ade5267d03d359315cbe33c81baefa5de83b0279b66b128cf0366df0bd3",
+    "study-m13/adversarial/per_band_errors.npy": "684d48b9490e98e9622718a4ef41be3a749848dcd1e3f02656e7c4206e5ddbd3",
+    "study-m13/showcase/scores.json": "3641593f0bb7d7d387458a04261d214360a86b87da387289eff23c15dc965bea",
+    "study-m13/showcase/per_band_errors.npy": "eef1db3994e45f66ea22436c1fc32179d747a86357fe1fd44809d5af9bffec8b",
+    "study-m14/training.json": "7979764dc9f715d2efae61c150b6fdb9eeac933e85da712442ded5319f901b76",
+    "study-m14-data/manifest.json": "478672b94653c9449bd6ca1d3af50757692135a0d585c607a4f6c482a75559f0",
+    "study-m14/test_dense/scores.json": "4f05bac7fc0812c3628b206ea5fa0f4d7d4906251efa592037f4d0a48ebd305a",
+    "study-m14/test_dense/per_band_errors.npy": "a4416a237924fac5b5511fd920a98338a9a2e26c7c6eb7f170ff1a97eabf3cba",
+    "study-m14/test_sparse/scores.json": "a89d10151664f58b56d241b959c50ae6d2e10672914d68fff90d0014bc8d73a2",
+    "study-m14/test_sparse/per_band_errors.npy": "df403b1be2e3aa9eed1a15f1c0755df63b7693153a9414ad31b232feb59fd627",
+    "study-m14/shared_m5_test_dense/scores.json": "0c444f069926147209bfb4b5220d054d6d4efaa3f6bfdd5f6bec6402113182c9",
+    "study-m14/shared_m5_test_dense/per_band_errors.npy": "65ac177b11e0c8e1b0ce2cbe0464667cb349804ae71727924ed91db2869247f2",
+    "study-m14/shared_m5_test_sparse/scores.json": "e75af714cdbe4fb053f03fe6c4ae3fa979c7788c938a784d2a69de5bea579d7a",
+    "study-m14/shared_m5_test_sparse/per_band_errors.npy": "e270d7cdc4f52349d6df8d561c3a2edfca842abf90a95e2fe37dbe7459a6ea73",
+    "study-m14/adversarial/scores.json": "c38f2214e87be054cd810cdc16c8bdffc4bb6b6769e380188f0867402934d6a4",
+    "study-m14/adversarial/per_band_errors.npy": "ef098039dc3a1fceccef7540daedff13d98d94529226c2ddd6a710410adc7e7f",
+    "study-m14/showcase/scores.json": "c61ddbffb4e7f4d5cd6a77903cc233aea2bcf2fb8bc860fd397ecdba6121b1f0",
+    "study-m14/showcase/per_band_errors.npy": "b7fbac182a4339c4122a30f1f1f30399bcafccb5b4ba7ec39f321abdcd4e7105",
+    "study-m15/training.json": "a1e4e06170ed98d60152e66a2b5225a558f8a574c40f91bb1b8954fb9b78af1d",
+    "study-m15-data/manifest.json": "4e60e1e7573fde8063068e16956f4dff5e863a4791da28e395223ab682fcbef4",
+    "study-m15/test_dense/scores.json": "5b56091d48b8bc0e7c1d7d0e5ccacc09f4ed0fea7eaaead7dd641b1ebd6a96a6",
+    "study-m15/test_dense/per_band_errors.npy": "7c7201c3e3f18f501635b9f6182effc15a759a05d299728079c9fd9c5b01205e",
+    "study-m15/test_sparse/scores.json": "8f03c10317ae3d674819dca3f4135a4990da8a1e21fde4c7b00909a699e5e321",
+    "study-m15/test_sparse/per_band_errors.npy": "1321e9c074dc71eb0ca33c9e2fb8eb9008cd8e3217386ba9702da74d4225f48f",
+    "study-m15/shared_m5_test_dense/scores.json": "d1c3c568ae60c312a618da4228ff7abb93f27af728c643132c6eadcde96a01ed",
+    "study-m15/shared_m5_test_dense/per_band_errors.npy": "3442d11b3b9b23d49e72f5cd5f91525cce05ce0fdd69ade45e52eebcf5225255",
+    "study-m15/shared_m5_test_sparse/scores.json": "87885e5c2b9bf0f4b3930e10003c06b9548ec0ab6892a6b5e13be3fa17729f63",
+    "study-m15/shared_m5_test_sparse/per_band_errors.npy": "23cb304c95661793a11fa1469f4e66504df0224ac90062b94b38894725bd8c9e",
+    "study-m15/adversarial/scores.json": "197c3cbacb3cff144db73915af7051deaee7eeb5041d3ad8d75010180b527952",
+    "study-m15/adversarial/per_band_errors.npy": "68502b051cfbfa0fc380e21b6b76618e8202e6ffa27e4c7408af91394d547975",
+    "study-m15/showcase/scores.json": "d7871a84a88bb44e664a14fd2348570a728c6dc6bdfdb072599a0def0c9cd5db",
+    "study-m15/showcase/per_band_errors.npy": "82ae65834656d2c8a9ed1a9ff744246788c70139ba2c664e857fded2f3abea1c",
+    "study-m16/training.json": "a058dd82d93ab26650d8e4efb840444682a6a284fcca6837b05454de1739e4df",
+    "study-m16-data/manifest.json": "0050fc5ea7a20a571e2efae0443e27ccf282a63734b2bcb5be06fa7975d31ad1",
+    "study-m16/test_dense/scores.json": "e28ed8c4e59a00f2c41d87bbe33410936bd3172c105f058cf4404643686c5b0c",
+    "study-m16/test_dense/per_band_errors.npy": "af459270b1219f98e893f8935a175317121932e6e8bacf01a11419ca9fec85be",
+    "study-m16/test_sparse/scores.json": "3b8ac2be2bc6d105300832a235091032ab0066b231ec4428adeee771d64fbee8",
+    "study-m16/test_sparse/per_band_errors.npy": "7a97ea529d4397c888b38f75dc370a8b3a808b1bdeb30431730f09ee8591ccec",
+    "study-m16/shared_m5_test_dense/scores.json": "f9d9b27bf394a658337791dd1e13e409ffa60f57ada0519574e3c3c67a3c6a82",
+    "study-m16/shared_m5_test_dense/per_band_errors.npy": "1e4c5ca234b5ad45ec3710c46221c469cd4e0caa237210e35d7918b4dc6e9660",
+    "study-m16/shared_m5_test_sparse/scores.json": "876c067cdf7d51b1b497dea57327f54a4156355d91e1e6f4b30091c314743dbf",
+    "study-m16/shared_m5_test_sparse/per_band_errors.npy": "c6daac9b26b5ef053fea15e1f925d6cc04a6890353eebd2202ad5271720ef9e6",
+    "study-m16/adversarial/scores.json": "badd8e764cd7f5459d9b0ceaba8e58ed66c90ed07f12ff8b6ea1d17b1a7215b6",
+    "study-m16/adversarial/per_band_errors.npy": "dc2c91d220a8e167892b2b313ef8839cb89a0876fcfb92e02b18eff40745b529",
+    "study-m16/showcase/scores.json": "d8d44e79586b10e46b5db77603295747dd3de1e8721a89740b2430ca407bf2ac",
+    "study-m16/showcase/per_band_errors.npy": "9ea64f1e759a799b183d455aad8dd1d327699f56c40fe0266d5ce163e5c2fee8",
+    "study-m17/training.json": "75623fbbb3d83d5841fa2b12d873b6437c10b33060f7cb8bfdc5d6ee28cfa3f3",
+    "study-m17-data/manifest.json": "4ccf59aa5a48ab9a8f567b9a46906a8763d1c037c92322c047488c079bc892ba",
+    "study-m17/test_dense/scores.json": "46f2f18b7dc042dffdfc95a01d64369067d4338a8f0ab0788fd535fdebfbf894",
+    "study-m17/test_dense/per_band_errors.npy": "fa18ea4ff3b8d5f1529052d584935a2b37142306cc3c3a7785cac032755502cc",
+    "study-m17/test_sparse/scores.json": "305ad206ccc2e0054333b82066b9d84de42a2571f2b62a6009835c053a7d466b",
+    "study-m17/test_sparse/per_band_errors.npy": "947ad6e58bddb128c29a8c52c20db860401ef8a94bd3b8270e1f57c3da74a912",
+    "study-m17/shared_m5_test_dense/scores.json": "887997d1d3570e47d88627b917943b801b6c18dc102a95c81853a0dfa473357d",
+    "study-m17/shared_m5_test_dense/per_band_errors.npy": "76fd332f503810441ae7171d5e687b92b951c28552a1bbe0840fa00f6e101e0f",
+    "study-m17/shared_m5_test_sparse/scores.json": "98fde18f07126ba19527f90ed36326839e5dc094531c1b0517bc848b52e61419",
+    "study-m17/shared_m5_test_sparse/per_band_errors.npy": "bf3f72f346a3d6a7d860a884e672138d3e6454e13bd1a88eb3f0afd1b3366041",
+    "study-m17/adversarial/scores.json": "895ff130f7847b5adf607acc982d9515a5962091e9c3d00dd0ad1f3b4d14e775",
+    "study-m17/adversarial/per_band_errors.npy": "bb44826c2cb9c12f6ee4b095c82610d530a7ee343128dd9445a7888d164eead6",
+    "study-m17/showcase/scores.json": "edb83bf2321d491250e8c3184b6ee6b54bc57b9b21f840c36bddfb99ab54a1b9",
+    "study-m17/showcase/per_band_errors.npy": "8d7ba975cf73e272ff300cd29544b1e8e72e50d0eea16352ef7513f4157c0408",
+    "study-m18/training.json": "ff7c079f5d46a893c8045d2737a57483db603e894615165aaa18efe9d2e06627",
+    "study-m18-data/manifest.json": "3c60101bf65f3f3ebe1a12e0f1873f2d0c8ad4bae261ec04031ef16d951378aa",
+    "study-m18/test_dense/scores.json": "12193ed37324a68c04a86bb46baf4665bb97cdc1dd1857e6596b6d56f2270c3e",
+    "study-m18/test_dense/per_band_errors.npy": "8a21db40991a559bc4b5002a112485e7c77b306b1259370422d3c3da9b802dc9",
+    "study-m18/test_sparse/scores.json": "c57cf1e52ab70e44b66322181b72f9f7a89b939844662f19e5ad572d5450d0bc",
+    "study-m18/test_sparse/per_band_errors.npy": "86ae173c764122a371f4bcc6a28b3749357c23a2f1f9838e92c985062ac701e0",
+    "study-m18/shared_m5_test_dense/scores.json": "491158988d3e676eddcf2b2877aa197da72ffc38974b577133c1ac36f23a15d2",
+    "study-m18/shared_m5_test_dense/per_band_errors.npy": "e278ef1feefec4b8f30fda2614663b6c7765f68dce2d8c26aa3ce7005cf49d0d",
+    "study-m18/shared_m5_test_sparse/scores.json": "22d0de5e3f5293d4cf3e2ba46cb5cd6de3a84fe5ad5f7fe9d67ed13158ccb725",
+    "study-m18/shared_m5_test_sparse/per_band_errors.npy": "5a845834f8a220b0f9cf9cfcdd61c7200b9683f3edc7101d89fbc74af94555b1",
+    "study-m18/adversarial/scores.json": "9276c8df0eb92df32e7fffd77ddf8c6ebafa025993a8ae7877250440c6f80be8",
+    "study-m18/adversarial/per_band_errors.npy": "8c4ff90c67a4aec699647573c8ce4bfe8c1eded7f0ccf7e2a019955bbd5d8dea",
+    "study-m18/showcase/scores.json": "052886350c94a365a56d4e5207920331784716bf2d0b99802ac5b45e2e08451c",
+    "study-m18/showcase/per_band_errors.npy": "b9536ff063f655bf169c8eb72246c4a3d5f557010ff6b730653f5edabc513467",
+    "study-m19/training.json": "5d616259855220c0e55f3d7885fcd4365970c7865361bae697a4373c64a2dbd9",
+    "study-m19-data/manifest.json": "4550a7f590260b3ffa2882dee912426b6d5f5ccfed44c87187f32ee6c6606c09",
+    "study-m19/test_dense/scores.json": "db95fc5cd54e51303ea37c77a5433d913f2042d660b82ea07f0ce335081d2b40",
+    "study-m19/test_dense/per_band_errors.npy": "69ba1d7e16a0e8857ec5669b5a9b89166b1d4dd1ba1a10a67763680a736b31ba",
+    "study-m19/test_sparse/scores.json": "b676b70b294aab78bf86c015e4119b13eb758f64150e1b1fefc48c4afd451b72",
+    "study-m19/test_sparse/per_band_errors.npy": "aa871673f2745143b3353ae1ce33b6fa7d1a5d949a5d0e71705c1f360b4baf11",
+    "study-m19/shared_m5_test_dense/scores.json": "fc9be8b94b46f26247bec5bd3af544a720fda0b68edf955550b1c832df65b264",
+    "study-m19/shared_m5_test_dense/per_band_errors.npy": "ee53f78d059c3a4fec8d65481a188dedf2b7807d4b612daf454fdbbd9567ba0d",
+    "study-m19/shared_m5_test_sparse/scores.json": "7785e7e58beaf0000956c7f974e81d6c7592a31a716a4d6cbd5d811ccbe1458d",
+    "study-m19/shared_m5_test_sparse/per_band_errors.npy": "5e489d0b5a2ad4769d16c081f8434adfc6e338d8ea95fd6f7d2c8abb6b9c8cca",
+    "study-m19/adversarial/scores.json": "409b81b36654aec3cfe23caf9ef05f523369e87e076e6f5c7aff1ba470ceb032",
+    "study-m19/adversarial/per_band_errors.npy": "dcbd1b5ac9db635c35fc9019a4f78d8cde82681535999a985bd86bc63164bb14",
+    "study-m19/showcase/scores.json": "a8f1d64ec8ceb2c13f65ca71db169d972963793ca03b253be9c587d07f11f8cd",
+    "study-m19/showcase/per_band_errors.npy": "ac5f717386678ba20c219df2690508b4f6a3dcd4aa707a5c6ea3f04d904652f3",
+    "study-m20/training.json": "ca012e36f34db1b905bb009ef29dd70c9929bff51640b4cb8c7b9e8575721730",
+    "study-m20-data/manifest.json": "5eb77df508515f890a0108b7ddc0380c9f7bb41d37558d099479e7184b52da4b",
+    "study-m20/test_dense/scores.json": "85ae59ed8f169ae9ee6a8166e5544e78c9f3dadecf257cd8e9d9d53d6040a7d6",
+    "study-m20/test_dense/per_band_errors.npy": "4d51db2ab2f3180af0428aecf13b9774a7a5a4ca813c74041e76173f9c588091",
+    "study-m20/test_sparse/scores.json": "5c111da76207dfb4cc2c56cd0129460da7346f9e3e1c3045af325a104c3399c7",
+    "study-m20/test_sparse/per_band_errors.npy": "318ef28ad23655178c6f68b35cd956b9390f00fc63c731c28ed5c6728cf1da93",
+    "study-m20/shared_m5_test_dense/scores.json": "5f97377b5de15da2d02e402c4cbe28c6a1c88a89af15ea4da17bc73d2e59e4ba",
+    "study-m20/shared_m5_test_dense/per_band_errors.npy": "10ac66acadb161647cb0a0897341f8d7d329c516ac850d0102311f0f23acc40f",
+    "study-m20/shared_m5_test_sparse/scores.json": "039d027589112e3abac212114ce16ced8b48cfbf577431fba6603203b17d852b",
+    "study-m20/shared_m5_test_sparse/per_band_errors.npy": "38c11f8ccd324f21b8c11a46d8938e3680c8d078fb323422eb402addf0c4912a",
+    "study-m20/adversarial/scores.json": "2fc3a95b71fb68753cf6b71a9d2c04d004f3369f981efaada57e536f7ccd802c",
+    "study-m20/adversarial/per_band_errors.npy": "6b37c65649e8d6e09b543f31162c076a0a89f00efe02cec03a123b3c62a6e8ee",
+    "study-m20/showcase/scores.json": "83b14b7bb11da0048c5ab31958549f1fae620c4f537aa20d60011beefca9e642",
+    "study-m20/showcase/per_band_errors.npy": "25979e81ef0a28f4987ae37e59a8b60fad3b69b35bfa75b35471c27ad6f4512f",
+    "executions/7b8eedb4d43a4322b2021631fa637674.json": "cad7c11b7085065f8245a58a2720b1373615fce1f9b85f3e2d359a57c584d616"
+  }
+}
